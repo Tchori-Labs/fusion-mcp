@@ -19,3 +19,6 @@ coverage/
 .idea/
 .vscode/
 *.log
+
+# Internal process docs — not part of the published project
+briefs/
