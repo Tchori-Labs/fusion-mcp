@@ -26,26 +26,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Pre-FM-000 guard: the repo starts as spec + briefs only. Until FM-000
+      # lands the toolchain (package.json etc.), all check steps are skipped so
+      # the required check still reports green. FM-000 MUST remove this guard
+      # step and the `if:` conditions below so the checks become real.
+      - name: Check toolchain present
+        id: guard
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-FM-000: no toolchain yet — skipping checks."
+          fi
+
       - name: Set up pnpm
+        if: steps.guard.outputs.present == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Set up Node.js
+        if: steps.guard.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.guard.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Lint
+        if: steps.guard.outputs.present == 'true'
         run: pnpm lint
 
       - name: Typecheck
+        if: steps.guard.outputs.present == 'true'
         run: pnpm typecheck
 
       - name: Test
+        if: steps.guard.outputs.present == 'true'
         run: pnpm test
 
       - name: Build
+        if: steps.guard.outputs.present == 'true'
         run: pnpm build

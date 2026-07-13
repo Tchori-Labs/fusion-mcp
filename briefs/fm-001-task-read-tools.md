@@ -3,10 +3,10 @@
 ## Context
 
 `fusion-mcp` is a governed MCP server wrapping the Fusion agent-board REST API.
-The scaffold already ships `config.ts`, `fusion-client.ts` (`FusionClient` with a
-`request()` primitive and `getHealth`/`getSystemInfo`), `index.ts`
-(`buildServer`, `auditLog`, stdio + minimal HTTP), and a working
-`get_board_health` tool. Read `SPEC.md` and `AGENTS.md` before starting — the
+FM-000 shipped the scaffold: `config.ts`, `fusion-client.ts` (the fetch-wrapper
+client), `index.ts` (server building, audit logging, stdio + minimal HTTP), and
+a working `get_board_health` tool. This task builds on that — depend on FM-000
+being merged first. Read `SPEC.md` and `AGENTS.md` before starting — the
 governance invariants and the cross-repo/no-merge protocol are binding.
 
 ## Scope

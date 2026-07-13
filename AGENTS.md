@@ -13,6 +13,9 @@ restart the system, or publish anything outside the board.
 
 ## Project layout
 
+Target layout — FM-000 establishes it; until then only the contract files
+(SPEC, briefs, CI) exist:
+
 ```
 src/
   config.ts            env parsing/validation → Config; requireToken()

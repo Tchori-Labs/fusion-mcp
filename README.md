@@ -10,8 +10,9 @@ approve plans, change settings, delete/archive tasks, or restart the system.
 Writes are limited to task creation and communication. Every tool call is audited
 to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
-> Scaffold status: only `get_board_health` is implemented today (proof-of-life).
-> The remaining tools land via the FM-00x tasks in [`briefs/`](./briefs).
+> Status: **spec only — no code yet.** This project is developed end-to-end by
+> Fusion's own agents: the scaffold and all tools land via the FM-00x tasks in
+> [`briefs/`](./briefs), each as a human-reviewed PR.
 
 ## Configuration
 
