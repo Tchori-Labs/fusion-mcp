@@ -22,3 +22,10 @@ coverage/
 
 # Internal process docs — not part of the published project
 briefs/
+
+# Fusion board runtime state
+.fusion
+.pi
+fusion.db
+fusion.db-wal
+fusion.db-shm
