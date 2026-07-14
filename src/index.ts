@@ -159,6 +159,30 @@ export function buildServer(
     },
   );
 
+  server.registerTool(
+    "get_task_workflow_results",
+    {
+      description: "Get workflow-step results for a task",
+      inputSchema: { id: z.string().min(1, "id is required") },
+    },
+    async ({ id }) => {
+      auditLog("get_task_workflow_results", `id=${id}`);
+      const workflowResults = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ workflowResults: workflowResults.data }),
+          },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 
