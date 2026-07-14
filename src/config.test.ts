@@ -48,14 +48,14 @@ describe("parseConfig", () => {
     },
   );
 
-  it.each(["0", "-1", "1.5", "abc", "", "65536"])(
+  it.each(["0", "00", "0080", "-1", "1.5", "abc", "", "65536"])(
     "rejects invalid port %j",
     (port) => {
       expect(() => parseConfig({ PORT: port })).toThrow(/PORT must/);
     },
   );
 
-  it.each(["0", "-1", "1.5", "abc", ""])(
+  it.each(["0", "00", "0080", "-1", "1.5", "abc", ""])(
     "rejects invalid request timeout %j",
     (timeout) => {
       expect(() =>
@@ -63,6 +63,22 @@ describe("parseConfig", () => {
       ).toThrow("FUSION_REQUEST_TIMEOUT_MS must be a positive integer");
     },
   );
+
+  it.each([65_534, 65_535])(
+    "accepts request timeout within the maximum: %i",
+    (timeout) => {
+      expect(
+        parseConfig({ FUSION_REQUEST_TIMEOUT_MS: String(timeout) })
+          .requestTimeoutMs,
+      ).toBe(timeout);
+    },
+  );
+
+  it("rejects a request timeout above the maximum", () => {
+    expect(() =>
+      parseConfig({ FUSION_REQUEST_TIMEOUT_MS: "65536" }),
+    ).toThrow("FUSION_REQUEST_TIMEOUT_MS must be between 1 and 65535");
+  });
 
   it("does not echo optional configuration in validation errors", () => {
     const marker = "test-secret-marker";

@@ -1,6 +1,8 @@
 const DEFAULT_BASE_URL = "http://127.0.0.1:4040";
 const DEFAULT_PORT = 4141;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+// Match the bounded integer range used by PORT and reject impractical delays.
+const MAX_REQUEST_TIMEOUT_MS = 65_535;
 
 export interface Config {
   baseUrl: string;
@@ -41,7 +43,7 @@ function parseInteger(
   maximum?: number,
 ): number {
   const candidate = value === undefined ? String(defaultValue) : value.trim();
-  if (!/^\d+$/.test(candidate)) {
+  if (!/^[1-9]\d*$/.test(candidate)) {
     throw new Error(`${name} must be a positive integer`);
   }
 
@@ -69,6 +71,7 @@ export function parseConfig(env: Environment = process.env): Config {
       "FUSION_REQUEST_TIMEOUT_MS",
       env.FUSION_REQUEST_TIMEOUT_MS,
       DEFAULT_REQUEST_TIMEOUT_MS,
+      MAX_REQUEST_TIMEOUT_MS,
     ),
   };
 }

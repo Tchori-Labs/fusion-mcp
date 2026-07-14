@@ -103,7 +103,12 @@ export function selectMode(args: readonly string[]): RunMode {
   if (args.includes("--stdio") && args.includes("--http")) {
     throw new CliArgumentError("--stdio and --http cannot be used together");
   }
-  throw new CliArgumentError(`unknown argument: ${args.join(" ")}`);
+  const offendingArgument =
+    args.find((argument) => argument !== "--stdio" && argument !== "--http") ??
+    args[1] ??
+    args[0] ??
+    "";
+  throw new CliArgumentError(`unknown argument: ${offendingArgument}`);
 }
 
 function defaultServerFactory(config: Config): RuntimeMcpServer {

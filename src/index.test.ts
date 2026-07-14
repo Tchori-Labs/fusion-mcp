@@ -86,6 +86,9 @@ describe("mode selection", () => {
     expect(() => selectMode(["--other"])).toThrow(
       "unknown argument: --other",
     );
+    expect(() => selectMode(["--stdio", "--other"])).toThrow(
+      "unknown argument: --other",
+    );
   });
 
   it("recognizes that a test import is not direct CLI execution", () => {
