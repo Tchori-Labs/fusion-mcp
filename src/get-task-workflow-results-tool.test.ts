@@ -25,14 +25,6 @@ async function createHarness(config: Config, fetch: FetchLike) {
   };
 }
 
-function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
-  const url = fetchMock.mock.calls[0]?.[0];
-  if (url === undefined) {
-    throw new Error("expected fetch to be called");
-  }
-  return new URL(url);
-}
-
 function textResult(result: unknown): unknown {
   if (
     typeof result !== "object" ||
@@ -74,84 +66,32 @@ describe("get_task_workflow_results", () => {
       .fn<FetchLike>()
       .mockResolvedValue(Response.json(workflowResults));
     const harness = await createHarness(
-      parseConfig({
-        FUSION_TOKEN: secretMarker,
-        FUSION_DEFAULT_PROJECT_ID: "default-project",
-      }),
+      parseConfig({ FUSION_TOKEN: secretMarker }),
       fetchMock,
     );
 
     try {
       const result = await harness.client.callTool({
         name: "get_task_workflow_results",
-        arguments: {
-          id: "task/with space",
-          projectId: "explicit-project",
-        },
+        arguments: { id: "task/with space" },
       });
 
       expect(result.isError).not.toBe(true);
       expect(textResult(result)).toEqual({ workflowResults });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      const url = requestedUrl(fetchMock);
-      expect(url.pathname).toBe(
-        "/api/tasks/task%2Fwith%20space/workflow-results",
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "http://127.0.0.1:4040/api/tasks/task%2Fwith%20space/workflow-results",
       );
-      expect(url.searchParams.get("projectId")).toBe("explicit-project");
       expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("GET");
       const auditOutput = vi
         .mocked(process.stderr.write)
         .mock.calls.map(([line]) => String(line))
         .join("");
       expect(auditOutput).toContain(
-        "tool=get_task_workflow_results id=task/with space projectIdApplied=true",
+        "tool=get_task_workflow_results id=task/with space",
       );
-      expect(auditOutput).not.toContain("explicit-project");
       expect(auditOutput).not.toContain(secretMarker);
       expect(JSON.stringify(result)).not.toContain(secretMarker);
-    } finally {
-      await harness.close();
-    }
-  });
-
-  it("falls back to the configured default project", async () => {
-    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(Response.json([]));
-    const harness = await createHarness(
-      parseConfig({
-        FUSION_TOKEN: secretMarker,
-        FUSION_DEFAULT_PROJECT_ID: "default-project",
-      }),
-      fetchMock,
-    );
-
-    try {
-      await harness.client.callTool({
-        name: "get_task_workflow_results",
-        arguments: { id: "FN-201" },
-      });
-
-      expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
-        "default-project",
-      );
-    } finally {
-      await harness.close();
-    }
-  });
-
-  it("omits projectId when no explicit or default project exists", async () => {
-    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(Response.json([]));
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: secretMarker }),
-      fetchMock,
-    );
-
-    try {
-      await harness.client.callTool({
-        name: "get_task_workflow_results",
-        arguments: { id: "FN-202" },
-      });
-
-      expect(requestedUrl(fetchMock).search).toBe("");
     } finally {
       await harness.close();
     }

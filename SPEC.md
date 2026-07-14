@@ -97,8 +97,8 @@ instance-scoped). Write tools are scoped strictly to task creation/communication
 | `list_projects` | read | *(none)* | `GET /api/projects` |
 | `list_tasks` | read | `projectId?: string`, `limit?: number`, `offset?: number`, `q?: string`, `column?: string`, `includeArchived?: boolean` | `GET /api/tasks` |
 | `get_task` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id` |
-| `get_task_logs` | read | `id: string`, `projectId?: string`, `limit?: number`, `offset?: number` | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`) |
-| `get_task_workflow_results` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id/workflow-results` |
+| `get_task_logs` | read | `id: string`, `limit?: number`, `offset?: number` | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`) |
+| `get_task_workflow_results` | read | `id: string` | `GET /api/tasks/:id/workflow-results` |
 | `read_project_settings` | read | `projectId?: string` | `GET /api/settings` |
 | `create_task` | write | `description: string` (req), `title?: string`, `column?: string`, `priority?: string`, `dependencies?: string[]`, `workflowId?: string`, `baseBranch?: string`, `projectId?: string` | `POST /api/tasks` |
 | `comment_task` | write | `id: string`, `text: string`, `author?: string` | `POST /api/tasks/:id/comments` |

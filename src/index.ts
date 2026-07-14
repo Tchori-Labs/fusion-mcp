@@ -170,21 +170,16 @@ export function buildServer(
       description: "Get a paginated page of task logs",
       inputSchema: {
         id: z.string().min(1, "id is required"),
-        projectId: z.string().optional(),
         limit: z.number().int().positive().max(200).default(50),
         offset: z.number().int().nonnegative().default(0),
       },
     },
-    async ({ id, projectId, limit, offset }) => {
-      const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
-        "get_task_logs",
-        `id=${id} projectIdApplied=${resolvedProjectId !== undefined} limit=${limit} offset=${offset}`,
-      );
+    async ({ id, limit, offset }) => {
+      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
       const logs = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/logs`,
-        { query: { projectId: resolvedProjectId, limit, offset } },
+        { query: { limit, offset } },
       );
       const total = parseTotalCount(logs.headers.get("x-total-count"));
       const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
@@ -207,21 +202,13 @@ export function buildServer(
     "get_task_workflow_results",
     {
       description: "Get workflow-step results for a task",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        projectId: z.string().optional(),
-      },
+      inputSchema: { id: z.string().min(1, "id is required") },
     },
-    async ({ id, projectId }) => {
-      const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
-        "get_task_workflow_results",
-        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
-      );
+    async ({ id }) => {
+      auditLog("get_task_workflow_results", `id=${id}`);
       const workflowResults = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
-        { query: { projectId: resolvedProjectId } },
       );
 
       return {
