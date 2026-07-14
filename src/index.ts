@@ -45,6 +45,14 @@ export interface RuntimeDependencies {
 
 class CliArgumentError extends Error {}
 
+function parseTotalCount(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) {
+    return null;
+  }
+  const total = Number(value);
+  return Number.isSafeInteger(total) ? total : null;
+}
+
 export function auditLog(tool: string, argsSummary = ""): void {
   const summary = argsSummary.replace(/\s+/g, " ").trim();
   process.stderr.write(
@@ -112,6 +120,40 @@ export function buildServer(
       return {
         content: [
           { type: "text", text: JSON.stringify({ task: task.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_task_logs",
+    {
+      description: "Get a paginated page of task logs",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        limit: z.number().int().positive().max(200).default(50),
+        offset: z.number().int().nonnegative().default(0),
+      },
+    },
+    async ({ id, limit, offset }) => {
+      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
+      const logs = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/logs`,
+        { query: { limit, offset } },
+      );
+      const total = parseTotalCount(logs.headers.get("x-total-count"));
+      const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              logs: logs.data,
+              pagination: { total, hasMore, limit, offset },
+            }),
+          },
         ],
       };
     },
