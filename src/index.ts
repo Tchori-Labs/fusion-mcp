@@ -20,6 +20,17 @@ import {
   type FetchLike,
 } from "./fusion-client.js";
 
+const listTasksInputShape = {
+  projectId: z.string().optional(),
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
+  q: z.string().optional(),
+  column: z.string().optional(),
+  includeArchived: z.boolean().optional(),
+} satisfies z.ZodRawShape;
+
+const listTasksInputSchema = z.object(listTasksInputShape);
+
 const listedTaskSchema = z
   .object({
     id: z.string(),
@@ -79,6 +90,36 @@ export function auditLog(tool: string, argsSummary = ""): void {
   );
 }
 
+function isListTasksCall(request: unknown): request is {
+  method: "tools/call";
+  params: { name: "list_tasks"; arguments?: unknown };
+} {
+  if (typeof request !== "object" || request === null) {
+    return false;
+  }
+  const { method, params } = request as { method?: unknown; params?: unknown };
+  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+    return false;
+  }
+  return (params as { name?: unknown }).name === "list_tasks";
+}
+
+function auditInvalidListTasksCalls(server: McpServer): void {
+  const setRequestHandler = server.server.setRequestHandler.bind(server.server);
+
+  server.server.setRequestHandler = (schema, handler) => {
+    setRequestHandler(schema, async (request, extra) => {
+      if (
+        isListTasksCall(request) &&
+        !listTasksInputSchema.safeParse(request.params.arguments ?? {}).success
+      ) {
+        auditLog("list_tasks", "validation=failed");
+      }
+      return await handler(request, extra);
+    });
+  };
+}
+
 export function buildServer(
   config: Config,
   options: BuildServerOptions = {},
@@ -86,6 +127,7 @@ export function buildServer(
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
+  auditInvalidListTasksCalls(server);
 
   server.registerTool(
     "get_board_health",
@@ -119,14 +161,7 @@ export function buildServer(
     "list_tasks",
     {
       description: "List board tasks with optional project and task filters",
-      inputSchema: {
-        projectId: z.string().optional(),
-        limit: z.number().int().positive().max(200).default(50),
-        offset: z.number().int().nonnegative().default(0),
-        q: z.string().optional(),
-        column: z.string().optional(),
-        includeArchived: z.boolean().optional(),
-      },
+      inputSchema: listTasksInputShape,
     },
     async ({ projectId, limit, offset, q, column, includeArchived }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;

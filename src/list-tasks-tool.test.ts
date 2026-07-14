@@ -226,7 +226,15 @@ describe("list_tasks", () => {
 
       expect(result.isError).toBe(true);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(process.stderr.write).not.toHaveBeenCalled();
+      expect(process.stderr.write).toHaveBeenCalledTimes(1);
+      const auditOutput = String(
+        vi.mocked(process.stderr.write).mock.calls[0]?.[0],
+      );
+      expect(auditOutput).toMatch(
+        /^\[[^\]]+\] tool=list_tasks validation=failed\n$/,
+      );
+      expect(auditOutput).not.toContain("fake-token-marker");
+      expect(auditOutput).not.toContain(JSON.stringify(arguments_));
     } finally {
       await harness.close();
     }
