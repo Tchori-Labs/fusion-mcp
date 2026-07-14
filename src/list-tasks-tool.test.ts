@@ -97,14 +97,27 @@ describe("list_tasks", () => {
     }
   });
 
-  it("returns a full page and forwards explicit project and task filters", async () => {
+  it("returns a compact full page and forwards explicit project and task filters", async () => {
     const tasks = [
-      { id: "FN-101", title: "First" },
-      { id: "FN-102", title: "Second" },
+      {
+        id: "FN-101",
+        title: "First",
+        column: "todo",
+        priority: "high",
+        status: "pending",
+        projectId: "explicit-project",
+        workflowId: "coding",
+      },
+      { id: "FN-102", title: "Second", column: "todo" },
     ];
+    const upstreamTasks = tasks.map((task) => ({
+      ...task,
+      description: "full task body must not be exposed",
+      internalSchedulerState: { runId: "internal-marker" },
+    }));
     const fetchMock = vi
       .fn<FetchLike>()
-      .mockResolvedValue(Response.json(tasks));
+      .mockResolvedValue(Response.json(upstreamTasks));
     const harness = await createHarness(
       parseConfig({
         FUSION_TOKEN: "fake-token-marker",
@@ -130,6 +143,10 @@ describe("list_tasks", () => {
         tasks,
         pagination: { limit: 2, offset: 4 },
       });
+      expect(JSON.stringify(textResult(result))).not.toContain("internal-marker");
+      expect(JSON.stringify(textResult(result))).not.toContain(
+        "full task body must not be exposed",
+      );
       expect(Object.fromEntries(requestedUrl(fetchMock).searchParams)).toEqual({
         projectId: "explicit-project",
         limit: "2",
@@ -210,6 +227,33 @@ describe("list_tasks", () => {
       expect(result.isError).toBe(true);
       expect(fetchMock).not.toHaveBeenCalled();
       expect(process.stderr.write).not.toHaveBeenCalled();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("rejects a malformed upstream task list without exposing its payload", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ tasks: ["malformed-marker"] }));
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: "fake-token-marker" }),
+      fetchMock,
+    );
+
+    try {
+      const result = await harness.client.callTool({
+        name: "list_tasks",
+        arguments: {},
+      });
+      const rendered = JSON.stringify(result);
+
+      expect(result.isError).toBe(true);
+      expect(rendered).toContain(
+        "Fusion returned an invalid task list: GET /api/tasks",
+      );
+      expect(rendered).not.toContain("malformed-marker");
+      expect(rendered).not.toContain("fake-token-marker");
     } finally {
       await harness.close();
     }

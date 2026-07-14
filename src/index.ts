@@ -14,7 +14,34 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
-import { FusionClient, type FetchLike } from "./fusion-client.js";
+import {
+  FusionClient,
+  FusionError,
+  type FetchLike,
+} from "./fusion-client.js";
+
+const listedTaskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string().optional(),
+    column: z.string().optional(),
+    priority: z.string().optional(),
+    status: z.string().optional(),
+    projectId: z.string().optional(),
+    workflowId: z.string().nullable().optional(),
+  })
+  .strip();
+
+function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
+  const result = listedTaskSchema.array().safeParse(data);
+  if (!result.success) {
+    throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
+      method: "GET",
+      path: "/api/tasks",
+    });
+  }
+  return result.data;
+}
 
 export interface BuildServerOptions {
   client?: FusionClient;
@@ -107,7 +134,7 @@ export function buildServer(
         "list_tasks",
         `column=${column ?? "all"} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined} includeArchived=${includeArchived ?? false}`,
       );
-      const response = await client.request<unknown[]>("GET", "/api/tasks", {
+      const response = await client.request<unknown>("GET", "/api/tasks", {
         query: {
           projectId: resolvedProjectId,
           limit,
@@ -117,13 +144,14 @@ export function buildServer(
           includeArchived,
         },
       });
+      const tasks = shapeListedTasks(response.data);
 
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify({
-              tasks: response.data,
+              tasks,
               pagination: { limit, offset },
             }),
           },
