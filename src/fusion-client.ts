@@ -125,7 +125,7 @@ export class FusionClient {
     query: Readonly<Record<string, QueryValue>> | undefined,
   ): URL {
     const base = new URL(`${this.config.baseUrl}/`);
-    const url = new URL(path, base);
+    const url = new URL(path.replace(/^\//, ""), base);
     if (url.origin !== base.origin) {
       throw new FusionError("Invalid Fusion request path", {
         method,

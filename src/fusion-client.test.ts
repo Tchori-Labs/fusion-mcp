@@ -62,6 +62,27 @@ describe("FusionClient", () => {
     );
   });
 
+  it("preserves a configured base-URL path for both health call paths", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockImplementation(async () => Response.json({ status: "ok" }));
+    const client = new FusionClient(
+      parseConfig({
+        FUSION_BASE_URL: "https://board.invalid/base///",
+        FUSION_TOKEN: "placeholder",
+      }),
+      fetchMock,
+    );
+
+    await client.getHealth();
+    await client.getSystemInfo();
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://board.invalid/base/api/health",
+      "https://board.invalid/base/api/system/info",
+    ]);
+  });
+
   it("resolves paths, serializes query values, and drops undefined", async () => {
     const fetchMock = vi
       .fn<FetchLike>()
@@ -80,6 +101,23 @@ describe("FusionClient", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://127.0.0.1:4040/api/tasks?projectId=project+a&limit=25&includeArchived=false",
     );
+  });
+
+  it("rejects a cross-origin request path before fetching", async () => {
+    const fetchMock = vi.fn<FetchLike>();
+    const client = new FusionClient(config(), fetchMock);
+
+    await expect(
+      client.request("GET", "https://foreign.invalid/api/health", {
+        authenticated: false,
+      }),
+    ).rejects.toMatchObject({
+      name: "FusionError",
+      message: "Invalid Fusion request path",
+      method: "GET",
+      path: "https://foreign.invalid/api/health",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("encodes JSON bodies with the correct content type", async () => {
