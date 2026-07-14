@@ -109,9 +109,9 @@ instance-scoped). Write tools are scoped strictly to task creation/communication
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
-**Scaffold status:** only `get_board_health` is implemented today as a
-proof-of-life. The remaining tools are delivered by tasks FM-001 … FM-004 (see
-`briefs/`) on top of the existing `FusionClient`.
+**Implementation status:** `get_board_health`, `get_task`, `get_task_logs`, and
+`get_task_workflow_results` are implemented. The remaining tools are delivered
+by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
 
 ## Transports
 
