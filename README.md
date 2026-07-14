@@ -10,9 +10,9 @@ approve plans, change settings, delete/archive tasks, or restart the system.
 Writes are limited to task creation and communication. Every tool call is audited
 to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
-> Status: **the executable scaffold and `get_board_health` proof-of-life tool
-> are implemented.** The remaining catalogue tools are future FM-00x work in
-> [`briefs/`](./briefs), delivered as separate human-reviewed PRs.
+> Status: **the executable scaffold, `get_board_health`, and `list_tasks` read
+> tool are implemented.** The remaining catalogue tools are future FM-00x work
+> in [`briefs/`](./briefs), delivered as separate human-reviewed PRs.
 
 ## Configuration
 
@@ -55,8 +55,8 @@ Register with Claude Code (stdio):
 
 ## Tools
 
-`get_board_health` (implemented) · `list_projects` · `list_tasks` · `get_task` ·
-`get_task_logs` · `get_task_workflow_results` · `read_project_settings` ·
+`get_board_health` (implemented) · `list_projects` · `list_tasks` (implemented) ·
+`get_task` · `get_task_logs` · `get_task_workflow_results` · `read_project_settings` ·
 `create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
 
 Read tools take an optional `projectId`; write tools are scoped to task
