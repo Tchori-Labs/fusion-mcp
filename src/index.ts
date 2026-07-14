@@ -87,6 +87,23 @@ export function buildServer(
     },
   );
 
+  server.registerTool(
+    "list_projects",
+    {
+      description: "List configured projects",
+      inputSchema: {},
+    },
+    async () => {
+      auditLog("list_projects");
+      const projects = await client.listProjects();
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ projects: projects.data }) },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 
