@@ -76,14 +76,22 @@ describe("get_task_logs", () => {
       }),
     );
     const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: secretMarker }),
+      parseConfig({
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      }),
       fetchMock,
     );
 
     try {
       const result = await harness.client.callTool({
         name: "get_task_logs",
-        arguments: { id: "FN-200", limit: 2, offset: 4 },
+        arguments: {
+          id: "FN-200",
+          projectId: "explicit-project",
+          limit: 2,
+          offset: 4,
+        },
       });
 
       expect(result.isError).not.toBe(true);
@@ -94,17 +102,18 @@ describe("get_task_logs", () => {
       const url = requestedUrl(fetchMock);
       expect(url.pathname).toBe("/api/tasks/FN-200/logs");
       expect(Object.fromEntries(url.searchParams)).toEqual({
+        projectId: "explicit-project",
         limit: "2",
         offset: "4",
       });
-      expect(url.searchParams.has("projectId")).toBe(false);
       const auditOutput = vi
         .mocked(process.stderr.write)
         .mock.calls.map(([line]) => String(line))
         .join("");
       expect(auditOutput).toContain(
-        "tool=get_task_logs id=FN-200 limit=2 offset=4",
+        "tool=get_task_logs id=FN-200 projectIdApplied=true limit=2 offset=4",
       );
+      expect(auditOutput).not.toContain("explicit-project");
       expect(auditOutput).not.toContain(secretMarker);
       expect(JSON.stringify(result)).not.toContain(secretMarker);
     } finally {
@@ -112,7 +121,33 @@ describe("get_task_logs", () => {
     }
   });
 
-  it("parses a true has-more header and sends default bounds", async () => {
+  it("falls back to the configured default project", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json([], { headers: { "X-Total-Count": "0" } }));
+    const harness = await createHarness(
+      parseConfig({
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      }),
+      fetchMock,
+    );
+
+    try {
+      await harness.client.callTool({
+        name: "get_task_logs",
+        arguments: { id: "FN-201" },
+      });
+
+      expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
+        "default-project",
+      );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("parses a true has-more header, sends default bounds, and omits absent scope", async () => {
     const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
       Response.json([{ id: 1 }], {
         headers: { "X-Total-Count": "51", "X-Has-More": "true" },
