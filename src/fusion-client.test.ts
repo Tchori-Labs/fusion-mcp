@@ -159,15 +159,16 @@ describe("FusionClient", () => {
     expect(response.headers.get("x-has-more")).toBe("true");
   });
 
-  it("normalizes non-2xx responses without exposing response bodies", async () => {
+  it("cancels and normalizes non-2xx response bodies", async () => {
     const marker = "unsafe-response-marker";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(new Response(marker, { status: 503 }));
+    const response = new Response(marker, { status: 503 });
+    const cancel = vi.spyOn(response.body!, "cancel");
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(response);
     const client = new FusionClient(config(), fetchMock);
 
     const error = await client.getHealth().catch((caught: unknown) => caught);
 
+    expect(cancel).toHaveBeenCalledOnce();
     expect(error).toBeInstanceOf(FusionError);
     expect(error).toMatchObject({
       method: "GET",
@@ -177,15 +178,16 @@ describe("FusionClient", () => {
     expect(String(error)).not.toContain(marker);
   });
 
-  it("normalizes malformed JSON without exposing response contents", async () => {
+  it("cancels and normalizes malformed JSON response bodies", async () => {
     const marker = "unsafe-json-marker";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(new Response(`{${marker}`));
+    const response = new Response(`{${marker}`);
+    const cancel = vi.spyOn(response.body!, "cancel");
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(response);
     const client = new FusionClient(config(), fetchMock);
 
     const error = await client.getHealth().catch((caught: unknown) => caught);
 
+    expect(cancel).toHaveBeenCalledOnce();
     expect(error).toBeInstanceOf(FusionError);
     expect(String(error)).toContain("Fusion returned invalid JSON");
     expect(String(error)).not.toContain(marker);

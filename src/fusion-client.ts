@@ -77,6 +77,7 @@ export class FusionClient {
       }
 
       if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion request failed: ${normalizedMethod} ${path} (status ${response.status})`,
           { method: normalizedMethod, path, status: response.status },
@@ -88,6 +89,7 @@ export class FusionClient {
         const text = await response.text();
         data = (text === "" ? undefined : JSON.parse(text)) as T;
       } catch {
+        await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion returned invalid JSON: ${normalizedMethod} ${path}`,
           { method: normalizedMethod, path, status: response.status },
