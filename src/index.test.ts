@@ -182,9 +182,73 @@ describe("minimal stateless HTTP mode", () => {
     expect(httpTransportFactory).toHaveBeenCalledTimes(2);
     expect(httpTransportFactory).toHaveBeenCalledWith({
       enableJsonResponse: true,
+      enableDnsRebindingProtection: true,
+      allowedHosts: ["127.0.0.1:4242"],
     });
     expect(firstServer.connect).toHaveBeenCalledWith(transport);
     expect(handleRequest).toHaveBeenCalledWith(request, response);
+  });
+
+  it("allows the bound loopback Host and rejects a foreign Host", async () => {
+    const http = httpFactoryHarness();
+    const processed = vi.fn();
+    const httpTransportFactory: NonNullable<
+      RuntimeDependencies["httpTransportFactory"]
+    > = vi.fn((options) => {
+      const handleRequest = vi.fn(async (request, response) => {
+        if (!options.allowedHosts?.includes(request.headers.host ?? "")) {
+          response.statusCode = 403;
+          response.end("Invalid Host header");
+          return;
+        }
+        processed();
+      });
+      return transportStub(handleRequest);
+    });
+
+    await startHttpServer(testConfig, {
+      httpServerFactory: http.factory,
+      httpTransportFactory,
+      serverFactory: () => serverStub(),
+    });
+
+    const allowedResponse = {
+      headersSent: false,
+      statusCode: 200,
+      end: vi.fn(),
+    };
+    const rejectedResponse = {
+      headersSent: false,
+      statusCode: 200,
+      end: vi.fn(),
+    };
+    http.getListener()(
+      {
+        url: "/mcp",
+        headers: { host: "127.0.0.1:4242" },
+      } as never,
+      allowedResponse as never,
+    );
+    http.getListener()(
+      {
+        url: "/mcp",
+        headers: { host: "attacker.invalid" },
+      } as never,
+      rejectedResponse as never,
+    );
+
+    await vi.waitFor(() => {
+      expect(httpTransportFactory).toHaveBeenCalledTimes(2);
+      expect(rejectedResponse.end).toHaveBeenCalledWith("Invalid Host header");
+    });
+    expect(processed).toHaveBeenCalledOnce();
+    expect(allowedResponse.statusCode).toBe(200);
+    expect(rejectedResponse.statusCode).toBe(403);
+    expect(httpTransportFactory).toHaveBeenCalledWith({
+      enableJsonResponse: true,
+      enableDnsRebindingProtection: true,
+      allowedHosts: ["127.0.0.1:4242"],
+    });
   });
 
   it("serves no endpoint other than /mcp", async () => {

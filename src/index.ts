@@ -130,6 +130,8 @@ async function dispatchHttpRequest(
   const server = serverFactory(config);
   const transport = transportFactory({
     enableJsonResponse: true,
+    enableDnsRebindingProtection: true,
+    allowedHosts: [`127.0.0.1:${config.port}`],
   });
 
   try {
