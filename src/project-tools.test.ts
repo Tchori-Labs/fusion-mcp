@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("project read tools", () => {
-  it("registers only the governed scaffold and project read tools", async () => {
+  it("registers all implemented governed read tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -77,6 +77,9 @@ describe("project read tools", () => {
 
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "get_task",
+        "get_task_logs",
+        "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
         "list_tasks",

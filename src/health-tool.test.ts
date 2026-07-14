@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("get_board_health", () => {
-  it("is registered alongside the implemented governed read tools", async () => {
+  it("registers all implemented governed read tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -60,6 +60,9 @@ describe("get_board_health", () => {
       const tools = await harness.client.listTools();
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "get_task",
+        "get_task_logs",
+        "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
         "list_tasks",
