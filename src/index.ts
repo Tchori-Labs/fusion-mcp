@@ -11,6 +11,7 @@ import {
   type StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
 import { FusionClient, type FetchLike } from "./fusion-client.js";
@@ -83,6 +84,35 @@ export function buildServer(
 
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_task",
+    {
+      description: "Get a single board task",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        projectId: z.string().optional(),
+      },
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const task = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: task.data }) },
+        ],
       };
     },
   );
