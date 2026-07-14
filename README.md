@@ -10,9 +10,10 @@ approve plans, change settings, delete/archive tasks, or restart the system.
 Writes are limited to task creation and communication. Every tool call is audited
 to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
-> Status: **spec only — no code yet.** This project is developed end-to-end by
-> Fusion's own agents: the scaffold and all tools land via the FM-00x tasks in
-> [`briefs/`](./briefs), each as a human-reviewed PR.
+> Status: **the executable scaffold, `get_board_health`, `list_projects`, and
+> `read_project_settings` are implemented.** The remaining catalogue tools are
+> future FM-00x work in [`briefs/`](./briefs), delivered as separate
+> human-reviewed PRs.
 
 ## Configuration
 
@@ -55,11 +56,14 @@ Register with Claude Code (stdio):
 
 ## Tools
 
-`get_board_health` (implemented) · `list_projects` · `list_tasks` · `get_task` ·
-`get_task_logs` · `get_task_workflow_results` · `read_project_settings` ·
-`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
+Implemented: `get_board_health` · `list_projects` · `read_project_settings`.
 
-Read tools take an optional `projectId`; write tools are scoped to task
+Planned: `list_tasks` · `get_task` · `get_task_logs` ·
+`get_task_workflow_results` · `create_task` · `comment_task` · `steer_task` ·
+`pause_task` · `unpause_task`.
+
+Project-scoped read tools take an optional `projectId`; `get_board_health` and
+`list_projects` are instance-scoped. Write tools are scoped to task
 creation/communication. Full parameter and endpoint mapping is in
 [`SPEC.md`](./SPEC.md#tool-catalogue).
 
