@@ -79,6 +79,7 @@ describe("project read tools", () => {
         "get_board_health",
         "list_projects",
         "read_project_settings",
+        "list_tasks",
       ]);
       const settingsTool = tools.tools.find(
         ({ name }) => name === "read_project_settings",

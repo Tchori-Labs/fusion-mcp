@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("get_board_health", () => {
-  it("is registered alongside the governed project read tools", async () => {
+  it("is registered alongside the implemented governed read tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -62,6 +62,7 @@ describe("get_board_health", () => {
         "get_board_health",
         "list_projects",
         "read_project_settings",
+        "list_tasks",
       ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {

@@ -110,9 +110,9 @@ creation/communication.
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
-**Implementation status:** `get_board_health`, `list_projects`, and
-`read_project_settings` are implemented. The remaining tools are delivered by
-tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
+**Implementation status:** `get_board_health`, `list_projects`, `list_tasks`,
+and `read_project_settings` are implemented. The remaining tools are delivered
+by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
 
 ## Transports
 
