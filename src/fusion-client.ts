@@ -125,6 +125,12 @@ export class FusionClient {
     return this.request("GET", "/api/projects");
   }
 
+  getSettings(projectId?: string): Promise<FusionResponse<unknown>> {
+    return this.request("GET", "/api/settings", {
+      query: { projectId },
+    });
+  }
+
   private resolveUrl(
     method: string,
     path: string,

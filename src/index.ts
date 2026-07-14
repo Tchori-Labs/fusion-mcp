@@ -11,6 +11,7 @@ import {
   type StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
 import { FusionClient, type FetchLike } from "./fusion-client.js";
@@ -99,6 +100,27 @@ export function buildServer(
       return {
         content: [
           { type: "text", text: JSON.stringify({ projects: projects.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "read_project_settings",
+    {
+      description: "Read project or instance settings",
+      inputSchema: { projectId: z.string().min(1).optional() },
+    },
+    async ({ projectId }) => {
+      const effectiveProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "read_project_settings",
+        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+      );
+      const settings = await client.getSettings(effectiveProjectId);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ settings: settings.data }) },
         ],
       };
     },
