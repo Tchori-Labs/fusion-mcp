@@ -11,6 +11,7 @@ import {
   type StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
 import { FusionClient, type FetchLike } from "./fusion-client.js";
@@ -83,6 +84,50 @@ export function buildServer(
 
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "list_tasks",
+    {
+      description: "List board tasks with optional project and task filters",
+      inputSchema: {
+        projectId: z.string().optional(),
+        limit: z.number().int().positive().max(200).default(50),
+        offset: z.number().int().nonnegative().default(0),
+        q: z.string().optional(),
+        column: z.string().optional(),
+        includeArchived: z.boolean().optional(),
+      },
+    },
+    async ({ projectId, limit, offset, q, column, includeArchived }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_tasks",
+        `column=${column ?? "all"} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined} includeArchived=${includeArchived ?? false}`,
+      );
+      const response = await client.request<unknown[]>("GET", "/api/tasks", {
+        query: {
+          projectId: resolvedProjectId,
+          limit,
+          offset,
+          q,
+          column,
+          includeArchived,
+        },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              tasks: response.data,
+              pagination: { limit, offset },
+            }),
+          },
+        ],
       };
     },
   );
