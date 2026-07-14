@@ -52,13 +52,17 @@ afterEach(() => {
 });
 
 describe("get_board_health", () => {
-  it("is the only registered tool", async () => {
+  it("is registered alongside the governed project read tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
     try {
       const tools = await harness.client.listTools();
-      expect(tools.tools.map(({ name }) => name)).toEqual(["get_board_health"]);
+      expect(tools.tools.map(({ name }) => name)).toEqual([
+        "get_board_health",
+        "list_projects",
+        "read_project_settings",
+      ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       await harness.close();
