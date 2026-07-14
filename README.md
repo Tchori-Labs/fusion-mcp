@@ -62,8 +62,9 @@ Planned: `list_tasks` · `get_task` · `get_task_logs` ·
 `get_task_workflow_results` · `create_task` · `comment_task` · `steer_task` ·
 `pause_task` · `unpause_task`.
 
-Project-scoped read tools take an optional `projectId`; write tools are scoped
-to task creation/communication. Full parameter and endpoint mapping is in
+Project-scoped read tools take an optional `projectId`; `get_board_health` and
+`list_projects` are instance-scoped. Write tools are scoped to task
+creation/communication. Full parameter and endpoint mapping is in
 [`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Development

@@ -88,8 +88,9 @@ turn the client into a fat SDK.
 
 ## Tool catalogue
 
-Read tools accept an optional `projectId` (except `get_board_health`, which is
-instance-scoped). Write tools are scoped strictly to task creation/communication.
+Project-scoped read tools accept an optional `projectId`; `get_board_health`
+and `list_projects` are instance-scoped. Write tools are scoped strictly to task
+creation/communication.
 
 | Tool | Class | Params (type) | Backing endpoint |
 | --- | --- | --- | --- |
