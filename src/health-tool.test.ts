@@ -61,6 +61,8 @@ describe("get_board_health", () => {
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
         "list_tasks",
+        "list_projects",
+        "read_project_settings",
       ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {

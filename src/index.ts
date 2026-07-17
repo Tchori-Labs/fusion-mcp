@@ -195,6 +195,44 @@ export function buildServer(
     },
   );
 
+  server.registerTool(
+    "list_projects",
+    {
+      description: "List configured projects",
+      inputSchema: {},
+    },
+    async () => {
+      auditLog("list_projects");
+      const projects = await client.listProjects();
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ projects: projects.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "read_project_settings",
+    {
+      description: "Read project or instance settings",
+      inputSchema: { projectId: z.string().min(1).optional() },
+    },
+    async ({ projectId }) => {
+      const effectiveProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "read_project_settings",
+        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+      );
+      const settings = await client.getSettings(effectiveProjectId);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ settings: settings.data }) },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 
