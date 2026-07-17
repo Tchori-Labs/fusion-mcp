@@ -459,6 +459,48 @@ export function buildServer(
     },
   );
 
+  server.registerTool(
+    "pause_task",
+    {
+      description: "Pause a board task",
+      inputSchema: { id: z.string().min(1, "id is required") },
+    },
+    async ({ id }) => {
+      auditLog("pause_task", `id=${id}`);
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/pause`,
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "unpause_task",
+    {
+      description: "Resume a paused board task",
+      inputSchema: { id: z.string().min(1, "id is required") },
+    },
+    async ({ id }) => {
+      auditLog("unpause_task", `id=${id}`);
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/unpause`,
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 

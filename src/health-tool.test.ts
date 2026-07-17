@@ -67,6 +67,8 @@ describe("get_board_health", () => {
         "read_project_settings",
         "list_tasks",
         "create_task",
+        "pause_task",
+        "unpause_task",
       ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
