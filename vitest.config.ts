@@ -4,7 +4,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    // Mandatory-suite only: future live/opt-in configs must omit this guard.
+    // Live tests are opt-in by filename and must run only through their own
+    // explicit config, which must omit the mandatory suite's network guard.
+    exclude: ["src/**/*.live.test.ts"],
     setupFiles: ["./src/test-setup/network-guard.ts"],
   },
 });

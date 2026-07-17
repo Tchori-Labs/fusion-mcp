@@ -1,3 +1,4 @@
+import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -69,6 +70,25 @@ describe("hermetic network guard", () => {
     expect(() =>
       tls.connect({ host: loopbackHost, port: unusedPort }),
     ).toThrow(HermeticNetworkError);
+  });
+
+  it("blocks UDP connection and send entry points synchronously", () => {
+    // A prototype-only receiver proves the patched entry points without even
+    // constructing an underlying datagram handle.
+    const socket = Object.create(dgram.Socket.prototype) as dgram.Socket;
+
+    expect(() => socket.connect(unusedPort, loopbackHost)).toThrow(
+      HermeticNetworkError,
+    );
+    expect(() => socket.send("blocked", unusedPort, loopbackHost)).toThrow(
+      HermeticNetworkError,
+    );
+    const sendto = socket as unknown as {
+      sendto(message: string, port: number, address: string): void;
+    };
+    expect(() => sendto.sendto("blocked", unusedPort, loopbackHost)).toThrow(
+      HermeticNetworkError,
+    );
   });
 
   it("blocks callback and promise DNS lookup and resolve paths", async () => {

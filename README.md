@@ -81,9 +81,10 @@ pnpm dev          # tsx src/index.ts --stdio
 ```
 
 CI runs all of the above as the required **Build & Test** check. The mandatory
-suite's guard has no bypass; opt-in live checks use a separate Vitest config
-that does not load it. Contributor rules — including the cross-repo / no-merge
-protocol — are in [`AGENTS.md`](./AGENTS.md).
+suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
+`pnpm test` and may run only as opt-in live checks through a separate, explicit
+Vitest config that does not load the guard. Contributor rules — including the
+cross-repo / no-merge protocol — are in [`AGENTS.md`](./AGENTS.md).
 
 ## License
 
