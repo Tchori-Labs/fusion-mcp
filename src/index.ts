@@ -367,6 +367,61 @@ export function buildServer(
     },
   );
 
+  server.registerTool(
+    "create_task",
+    {
+      description: "Create a board task using the governed safe field subset",
+      inputSchema: {
+        description: z.string().min(1, "description is required"),
+        title: z.string().optional(),
+        column: z.string().optional(),
+        priority: z.string().optional(),
+        dependencies: z.array(z.string()).optional(),
+        workflowId: z.string().optional(),
+        baseBranch: z.string().optional(),
+        projectId: z.string().optional(),
+      },
+    },
+    async ({
+      description,
+      title,
+      column,
+      priority,
+      dependencies,
+      workflowId,
+      baseBranch,
+      projectId,
+    }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      const body = {
+        description,
+        ...(title === undefined ? {} : { title }),
+        ...(column === undefined ? {} : { column }),
+        ...(priority === undefined ? {} : { priority }),
+        ...(dependencies === undefined ? {} : { dependencies }),
+        ...(workflowId === undefined ? {} : { workflowId }),
+        ...(baseBranch === undefined ? {} : { baseBranch }),
+        ...(resolvedProjectId === undefined
+          ? {}
+          : { projectId: resolvedProjectId }),
+      };
+
+      auditLog(
+        "create_task",
+        `title=${title ?? "(none)"} column=${column ?? "(default)"}`,
+      );
+      const response = await client.request<unknown>("POST", "/api/tasks", {
+        body,
+      });
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 
