@@ -69,9 +69,10 @@ const rejectNetworkFetch: FetchLike = async () => {
 
 export async function generateToolManifest(
   config: Config = parseConfig({}),
+  fetch: FetchLike = rejectNetworkFetch,
 ): Promise<ToolContractManifest> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = buildServer(config, { fetch: rejectNetworkFetch });
+  const server = buildServer(config, { fetch });
   const client = new Client({
     name: "fusion-mcp-tool-contract",
     version: "1.0.0",
