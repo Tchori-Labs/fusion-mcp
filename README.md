@@ -13,8 +13,9 @@ to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 > Status: **the executable scaffold and all read tools — `get_board_health`,
 > `list_projects`, `read_project_settings`, `list_tasks`, `get_task`,
 > `get_task_logs`, and `get_task_workflow_results` — are implemented.** The
-> remaining catalogue tools are future FM-00x work in [`briefs/`](./briefs),
-> delivered as separate human-reviewed PRs.
+> remaining catalogue tools are delivered as board tasks (the original write
+> set is briefed in [`briefs/`](./briefs)); each task's plan is human-approved
+> and the board integrates completed work into `develop`.
 
 ## Configuration
 
@@ -70,8 +71,10 @@ creation/communication. Full parameter and endpoint mapping is in
 
 ## Branching & releases
 
-- **`develop`** is the default branch. All feature/fix PRs (including
-  agent-generated `fusion/*` branches) target `develop`.
+- **`develop`** is the default branch and the board's integration branch:
+  completed board-task work (agent `fusion/*` branches) is squash-integrated
+  into `develop` by the board and pushed to origin. Human feature/fix PRs
+  also target `develop`.
 - **`main`** is the release branch. It only moves via a PR from `develop` (or a
   `release/*` / `hotfix/*` branch); this is enforced by a repository ruleset
   plus the `Release guard` workflow. Direct pushes, force pushes, and branch
