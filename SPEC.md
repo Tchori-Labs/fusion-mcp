@@ -111,9 +111,9 @@ creation/communication.
 Fusion API may accept are intentionally not surfaced.
 
 **Implementation status:** `get_board_health`, `list_projects`,
-`read_project_settings`, and `list_tasks` are implemented. The remaining tools
-are delivered by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing
-`FusionClient`.
+`read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`, and
+`get_task_workflow_results` are implemented. The remaining tools are delivered
+by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
 
 ## Transports
 

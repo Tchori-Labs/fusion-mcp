@@ -13,7 +13,7 @@ import {
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 
-import { parseConfig, type Config } from "./config.js";
+import { parseConfig, type Config, type Environment } from "./config.js";
 import {
   FusionClient,
   FusionError,
@@ -72,6 +72,7 @@ export interface HttpServerLike {
 
 export interface RuntimeDependencies {
   config?: Config;
+  env?: Environment;
   serverFactory?: (config: Config) => RuntimeMcpServer;
   stdioTransportFactory?: () => Transport;
   httpTransportFactory?: (
@@ -82,6 +83,52 @@ export interface RuntimeDependencies {
 }
 
 class CliArgumentError extends Error {}
+
+function parseTotalCount(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) {
+    return null;
+  }
+  const total = Number(value);
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+function parseConfiguredHttpHosts(value: string | undefined): string[] {
+  if (value === undefined || value.trim() === "") {
+    return [];
+  }
+
+  return value.split(",").map((entry) => {
+    const candidate = entry.trim();
+    try {
+      const parsed = new URL(`http://${candidate}`);
+      if (
+        candidate === "" ||
+        parsed.username !== "" ||
+        parsed.password !== "" ||
+        parsed.pathname !== "/" ||
+        parsed.search !== "" ||
+        parsed.hash !== "" ||
+        parsed.hostname === ""
+      ) {
+        throw new Error("invalid host");
+      }
+      return candidate.toLowerCase();
+    } catch {
+      throw new Error(
+        "FUSION_MCP_ALLOWED_HOSTS must be a comma-separated list of exact Host values",
+      );
+    }
+  });
+}
+
+function trustedHttpHosts(config: Config, env: Environment): string[] {
+  return [
+    ...new Set([
+      `127.0.0.1:${config.port}`,
+      ...parseConfiguredHttpHosts(env.FUSION_MCP_ALLOWED_HOSTS),
+    ]),
+  ];
+}
 
 export function auditLog(tool: string, argsSummary = ""): void {
   const summary = argsSummary.replace(/\s+/g, " ").trim();
@@ -196,6 +243,93 @@ export function buildServer(
   );
 
   server.registerTool(
+    "get_task",
+    {
+      description: "Get a single board task",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        projectId: z.string().optional(),
+      },
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const task = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: task.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_task_logs",
+    {
+      description: "Get a paginated page of task logs",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        limit: z.number().int().positive().max(200).default(50),
+        offset: z.number().int().nonnegative().default(0),
+      },
+    },
+    async ({ id, limit, offset }) => {
+      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
+      const logs = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/logs`,
+        { query: { limit, offset } },
+      );
+      const total = parseTotalCount(logs.headers.get("x-total-count"));
+      const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              logs: logs.data,
+              pagination: { total, hasMore, limit, offset },
+            }),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_task_workflow_results",
+    {
+      description: "Get workflow-step results for a task",
+      inputSchema: { id: z.string().min(1, "id is required") },
+    },
+    async ({ id }) => {
+      auditLog("get_task_workflow_results", `id=${id}`);
+      const workflowResults = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ workflowResults: workflowResults.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
     "list_projects",
     {
       description: "List configured projects",
@@ -265,6 +399,7 @@ async function dispatchHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: Config,
+  allowedHosts: readonly string[],
   dependencies: RuntimeDependencies,
 ): Promise<void> {
   const path = request.url?.split("?", 1)[0];
@@ -282,7 +417,7 @@ async function dispatchHttpRequest(
   const transport = transportFactory({
     enableJsonResponse: true,
     enableDnsRebindingProtection: true,
-    allowedHosts: [`127.0.0.1:${config.port}`],
+    allowedHosts: [...allowedHosts],
   });
 
   try {
@@ -308,6 +443,10 @@ export async function startHttpServer(
   const factory =
     dependencies.httpServerFactory ??
     ((listener: RequestListener) => createServer(listener));
+  const allowedHosts = trustedHttpHosts(
+    config,
+    dependencies.env ?? process.env,
+  );
 
   return await new Promise<HttpServerLike>((resolve, reject) => {
     const httpServer = factory((request, response) => {
@@ -315,6 +454,7 @@ export async function startHttpServer(
         request,
         response,
         config,
+        allowedHosts,
         dependencies,
       );
     });
@@ -350,7 +490,9 @@ function safeCliError(error: unknown): string {
   }
   if (
     error instanceof Error &&
-    /^(FUSION_BASE_URL|FUSION_REQUEST_TIMEOUT_MS|PORT) must/.test(error.message)
+    /^(FUSION_BASE_URL|FUSION_REQUEST_TIMEOUT_MS|FUSION_MCP_ALLOWED_HOSTS|PORT) must/.test(
+      error.message,
+    )
   ) {
     return error.message;
   }

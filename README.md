@@ -10,10 +10,11 @@ approve plans, change settings, delete/archive tasks, or restart the system.
 Writes are limited to task creation and communication. Every tool call is audited
 to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
-> Status: **the executable scaffold, `get_board_health`, `list_projects`,
-> `read_project_settings`, and `list_tasks` are implemented.** The remaining
-> catalogue tools are future FM-00x work in [`briefs/`](./briefs), delivered as
-> separate human-reviewed PRs.
+> Status: **the executable scaffold and all read tools — `get_board_health`,
+> `list_projects`, `read_project_settings`, `list_tasks`, `get_task`,
+> `get_task_logs`, and `get_task_workflow_results` — are implemented.** The
+> remaining catalogue tools are future FM-00x work in [`briefs/`](./briefs),
+> delivered as separate human-reviewed PRs.
 
 ## Configuration
 
@@ -57,11 +58,10 @@ Register with Claude Code (stdio):
 ## Tools
 
 Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
-`list_tasks`.
+`list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results`.
 
-Planned: `get_task` · `get_task_logs` ·
-`get_task_workflow_results` · `create_task` · `comment_task` · `steer_task` ·
-`pause_task` · `unpause_task`.
+Planned: `create_task` · `comment_task` · `steer_task` · `pause_task` ·
+`unpause_task`.
 
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
 `list_projects` are instance-scoped. Write tools are scoped to task
