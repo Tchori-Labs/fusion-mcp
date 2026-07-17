@@ -159,8 +159,10 @@ stdio protocol, so all diagnostics go to stderr.
 
 ## Deployment sketch
 
-Runs on the **same LXC as the Fusion daemon**, talking to it over loopback
-(`http://127.0.0.1:4040`), so the token never crosses the network in the hot path.
+Runs **alongside the Fusion daemon on the same host** (as a service managed by
+the same container platform), talking to it over loopback/internal networking
+(`http://127.0.0.1:4040`), so the token never crosses the public network in the
+hot path.
 
 1. Build (`pnpm build`) and ship `dist/` + `node_modules` (or install on the box).
 2. A `systemd` unit runs `node dist/index.js --http` with an `EnvironmentFile`
