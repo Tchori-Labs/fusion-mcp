@@ -134,6 +134,18 @@ is delivered by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing
 `get_mission`, and `move_task` were added by the human-approved 2026-07-17
 spec change and are delivered by their own board tasks.
 
+### Tool contract compatibility
+
+[`tool-contract.json`](./tool-contract.json) is the generated, append-only
+history of compatibility baselines for implemented tool names and their MCP input
+JSON Schemas. CI compares the live in-memory MCP surface with every baseline in
+the current package major and rejects breaking drift. Tool names and top-level
+input properties must both appear in this catalogue; ungoverned additions always
+fail. Governed additive changes are permitted, while intentional breaks require
+a new major baseline. The versioning, deprecation, and
+regenerate-don't-hand-edit policy is documented in
+[`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md).
+
 ## Transports
 
 - **stdio** (default) — for local use with Claude Code / Desktop. Started with no
