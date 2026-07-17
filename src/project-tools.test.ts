@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("project read tools", () => {
-  it("registers all implemented governed read tools", async () => {
+  it("registers exactly the implemented governed tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -83,6 +83,7 @@ describe("project read tools", () => {
         "list_projects",
         "read_project_settings",
         "list_tasks",
+        "create_task",
       ]);
       const settingsTool = tools.tools.find(
         ({ name }) => name === "read_project_settings",
