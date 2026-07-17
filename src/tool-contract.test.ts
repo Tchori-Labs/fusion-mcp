@@ -9,6 +9,7 @@ import {
   normalizeManifest,
   packageMajor,
   SPEC_TOOL_CATALOGUE,
+  SPEC_TOOL_INPUT_PROPERTIES,
   type JsonSchema,
   type ToolContractArtifact,
   type ToolContractManifest,
@@ -21,6 +22,7 @@ const committedArtifact = JSON.parse(
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { version: string };
+const spec = readFileSync(new URL("../SPEC.md", import.meta.url), "utf8");
 const currentPackageMajor = packageMajor(packageJson.version);
 const publishedBaselines = committedArtifact.baselines.filter(
   (baseline) => baseline.packageMajor === currentPackageMajor,
@@ -64,7 +66,45 @@ function expectBreaking(
   expect(result.breaking.map((entry) => entry.kind)).toContain(kind);
 }
 
+function parseSpecToolCatalogue(
+  markdown: string,
+): Record<string, readonly string[]> {
+  const section = markdown.match(
+    /## Tool catalogue(?<catalogue>[\s\S]*?)(?:\n## |$)/u,
+  )?.groups?.catalogue;
+  if (section === undefined) {
+    throw new Error("SPEC.md has no Tool catalogue section");
+  }
+
+  return Object.fromEntries(
+    [
+      ...section.matchAll(
+        /^\|\s*`(?<tool>[^`]+)`\s*\|[^|]*\|(?<params>[^|]*)\|/gmu,
+      ),
+    ].map(({ groups }) => {
+      if (groups?.tool === undefined || groups.params === undefined) {
+        throw new Error("could not parse a SPEC.md Tool catalogue row");
+      }
+      const properties = [
+        ...groups.params.matchAll(
+          /`(?<name>[A-Za-z][A-Za-z0-9]*)(?:\?)?\s*:/gu,
+        ),
+      ].map(({ groups: propertyGroups }) => {
+        if (propertyGroups?.name === undefined) {
+          throw new Error(`could not parse parameters for ${groups.tool}`);
+        }
+        return propertyGroups.name;
+      });
+      return [groups.tool, properties] as const;
+    }),
+  );
+}
+
 describe("committed tool contract", () => {
+  it("keeps the enforcement allowlist synchronized with the SPEC catalogue", () => {
+    expect(parseSpecToolCatalogue(spec)).toEqual(SPEC_TOOL_INPUT_PROPERTIES);
+  });
+
   it("is compatible with every published baseline in the package major", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const liveManifest = normalizeManifest(
