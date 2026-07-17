@@ -81,8 +81,9 @@ pnpm dev          # tsx src/index.ts --stdio
 ```
 
 When a governed tool or input schema changes, run `pnpm contract:generate`,
-review the `tool-contract.json` diff, and commit the generated file. Do not edit
-the manifest by hand. See
+review the `tool-contract.json` diff, and commit the generated file. Generation
+preserves prior same-major baselines and rejects breaking or ungoverned changes;
+do not edit or remove manifest history by hand. See
 [`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md) for the
 compatibility and deprecation policy.
 

@@ -6,22 +6,45 @@ import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 export const TOOL_CONTRACT_MANIFEST_VERSION = 1 as const;
+export const TOOL_CONTRACT_ARTIFACT_VERSION = 1 as const;
 
 // Governance allowlist: update only together with the Tool catalogue in SPEC.md.
-export const SPEC_TOOL_CATALOGUE = [
-  "get_board_health",
-  "list_projects",
-  "list_tasks",
-  "get_task",
-  "get_task_logs",
-  "get_task_workflow_results",
-  "read_project_settings",
-  "create_task",
-  "comment_task",
-  "steer_task",
-  "pause_task",
-  "unpause_task",
-] as const;
+export const SPEC_TOOL_INPUT_PROPERTIES = {
+  get_board_health: [],
+  list_projects: [],
+  list_tasks: [
+    "projectId",
+    "limit",
+    "offset",
+    "q",
+    "column",
+    "includeArchived",
+  ],
+  get_task: ["id", "projectId"],
+  get_task_logs: ["id", "limit", "offset"],
+  get_task_workflow_results: ["id"],
+  read_project_settings: ["projectId"],
+  create_task: [
+    "description",
+    "title",
+    "column",
+    "priority",
+    "dependencies",
+    "workflowId",
+    "baseBranch",
+    "projectId",
+  ],
+  comment_task: ["id", "text", "author"],
+  steer_task: ["id", "text"],
+  pause_task: ["id"],
+  unpause_task: ["id"],
+} as const;
+
+export const SPEC_TOOL_CATALOGUE = Object.freeze(
+  Object.keys(SPEC_TOOL_INPUT_PROPERTIES) as Array<
+    keyof typeof SPEC_TOOL_INPUT_PROPERTIES
+  >,
+);
 
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
@@ -35,11 +58,21 @@ export interface ToolContractManifest {
   tools: readonly ToolContractEntry[];
 }
 
+export interface PublishedToolContractBaseline extends ToolContractManifest {
+  packageMajor: number;
+}
+
+export interface ToolContractArtifact {
+  artifactVersion: typeof TOOL_CONTRACT_ARTIFACT_VERSION;
+  baselines: readonly PublishedToolContractBaseline[];
+}
+
 export type ContractChangeKind =
   | "manifest-version-changed"
   | "tool-removed"
   | "tool-added"
   | "ungoverned-tool"
+  | "ungoverned-property"
   | "property-removed"
   | "property-added"
   | "required-added"
@@ -121,6 +154,129 @@ export function normalizeManifest(
       }))
       .sort((left, right) => left.name.localeCompare(right.name)),
   };
+}
+
+export function packageMajor(version: string): number {
+  const match = /^(\d+)\./u.exec(version);
+  if (match?.[1] === undefined) {
+    throw new Error(`invalid package version: ${version}`);
+  }
+  return Number(match[1]);
+}
+
+function normalizeBaseline(
+  baseline: PublishedToolContractBaseline,
+): PublishedToolContractBaseline {
+  return {
+    packageMajor: baseline.packageMajor,
+    ...normalizeManifest(baseline),
+  };
+}
+
+function asArtifact(
+  existing: ToolContractArtifact | ToolContractManifest | undefined,
+  currentPackageMajor: number,
+): ToolContractArtifact {
+  if (existing === undefined) {
+    return {
+      artifactVersion: TOOL_CONTRACT_ARTIFACT_VERSION,
+      baselines: [],
+    };
+  }
+  if ("baselines" in existing) {
+    return {
+      artifactVersion: TOOL_CONTRACT_ARTIFACT_VERSION,
+      baselines: existing.baselines.map(normalizeBaseline),
+    };
+  }
+  return {
+    artifactVersion: TOOL_CONTRACT_ARTIFACT_VERSION,
+    baselines: [
+      {
+        packageMajor: currentPackageMajor,
+        ...normalizeManifest(existing),
+      },
+    ],
+  };
+}
+
+/**
+ * Append a generated contract to the published baseline history.
+ *
+ * Baselines within the current package major are never overwritten, so CI can
+ * compare the live surface with every contract published in that major. A
+ * breaking contract starts a new history only after the package major changes.
+ */
+export function updateToolContractArtifact(
+  existing: ToolContractArtifact | ToolContractManifest | undefined,
+  candidate: ToolContractManifest,
+  currentPackageMajor: number,
+): ToolContractArtifact {
+  const artifact = asArtifact(existing, currentPackageMajor);
+  const normalizedCandidate = normalizeManifest(candidate);
+  const greatestPublishedMajor = Math.max(
+    -1,
+    ...artifact.baselines.map((baseline) => baseline.packageMajor),
+  );
+  if (currentPackageMajor < greatestPublishedMajor) {
+    throw new Error(
+      `package major ${currentPackageMajor} is older than published contract major ${greatestPublishedMajor}`,
+    );
+  }
+
+  const governanceCheck = diffToolContract(
+    {
+      manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+      tools: [],
+    },
+    normalizedCandidate,
+  );
+  const governanceViolations = governanceCheck.breaking.filter(
+    ({ kind }) => kind === "ungoverned-tool" || kind === "ungoverned-property",
+  );
+  if (governanceViolations.length > 0) {
+    throw new Error(
+      `tool contract violates SPEC governance:\n${formatChanges(governanceViolations)}`,
+    );
+  }
+
+  const activeBaselines = artifact.baselines.filter(
+    (baseline) => baseline.packageMajor === currentPackageMajor,
+  );
+  for (const baseline of activeBaselines) {
+    const result = diffToolContract(baseline, normalizedCandidate);
+    if (!result.compatible) {
+      throw new Error(
+        `breaking tool contract change in package major ${currentPackageMajor}:\n${formatChanges(result.breaking)}\nBump the package major and follow docs/tool-contract-versioning.md before regenerating.`,
+      );
+    }
+  }
+
+  const latest = activeBaselines.at(-1);
+  if (
+    latest !== undefined &&
+    JSON.stringify(normalizeManifest(latest)) ===
+      JSON.stringify(normalizedCandidate)
+  ) {
+    return artifact;
+  }
+
+  return {
+    artifactVersion: TOOL_CONTRACT_ARTIFACT_VERSION,
+    baselines: [
+      ...artifact.baselines,
+      {
+        packageMajor: currentPackageMajor,
+        ...normalizedCandidate,
+      },
+    ],
+  };
+}
+
+function formatChanges(changes: readonly ContractChange[]): string {
+  return changes
+    .map(({ kind, path, message }) => `- ${kind} at ${path}: ${message}`)
+    .join("\n");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -474,6 +630,32 @@ export function diffToolContract(
           `tool ${tool.name} is not in the SPEC catalogue`,
         ),
       );
+      continue;
+    }
+
+    const allowedProperties = new Set<string>(
+      SPEC_TOOL_INPUT_PROPERTIES[
+        tool.name as keyof typeof SPEC_TOOL_INPUT_PROPERTIES
+      ],
+    );
+    const declaredProperties = Object.keys(
+      asRecord(tool.inputSchema.properties) ?? {},
+    );
+    const requiredProperties = stringSet(tool.inputSchema.required);
+    for (const propertyName of new Set([
+      ...declaredProperties,
+      ...requiredProperties,
+    ])) {
+      if (!allowedProperties.has(propertyName)) {
+        result.breaking.push(
+          change(
+            "ungoverned-property",
+            tool.name,
+            `tools.${tool.name}.inputSchema.properties.${propertyName}`,
+            `property ${propertyName} is not governed for tool ${tool.name} in SPEC.md`,
+          ),
+        );
+      }
     }
   }
 
