@@ -14,7 +14,45 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
-import { FusionClient, type FetchLike } from "./fusion-client.js";
+import {
+  FusionClient,
+  FusionError,
+  type FetchLike,
+} from "./fusion-client.js";
+
+const listTasksInputShape = {
+  projectId: z.string().optional(),
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
+  q: z.string().optional(),
+  column: z.string().optional(),
+  includeArchived: z.boolean().optional(),
+} satisfies z.ZodRawShape;
+
+const listTasksInputSchema = z.object(listTasksInputShape);
+
+const listedTaskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string().optional(),
+    column: z.string().optional(),
+    priority: z.string().optional(),
+    status: z.string().optional(),
+    projectId: z.string().optional(),
+    workflowId: z.string().nullable().optional(),
+  })
+  .strip();
+
+function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
+  const result = listedTaskSchema.array().safeParse(data);
+  if (!result.success) {
+    throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
+      method: "GET",
+      path: "/api/tasks",
+    });
+  }
+  return result.data;
+}
 
 export interface BuildServerOptions {
   client?: FusionClient;
@@ -99,6 +137,36 @@ export function auditLog(tool: string, argsSummary = ""): void {
   );
 }
 
+function isListTasksCall(request: unknown): request is {
+  method: "tools/call";
+  params: { name: "list_tasks"; arguments?: unknown };
+} {
+  if (typeof request !== "object" || request === null) {
+    return false;
+  }
+  const { method, params } = request as { method?: unknown; params?: unknown };
+  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+    return false;
+  }
+  return (params as { name?: unknown }).name === "list_tasks";
+}
+
+function auditInvalidListTasksCalls(server: McpServer): void {
+  const setRequestHandler = server.server.setRequestHandler.bind(server.server);
+
+  server.server.setRequestHandler = (schema, handler) => {
+    setRequestHandler(schema, async (request, extra) => {
+      if (
+        isListTasksCall(request) &&
+        !listTasksInputSchema.safeParse(request.params.arguments ?? {}).success
+      ) {
+        auditLog("list_tasks", "validation=failed");
+      }
+      return await handler(request, extra);
+    });
+  };
+}
+
 export function buildServer(
   config: Config,
   options: BuildServerOptions = {},
@@ -106,6 +174,7 @@ export function buildServer(
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
+  auditInvalidListTasksCalls(server);
 
   server.registerTool(
     "get_board_health",
@@ -131,6 +200,44 @@ export function buildServer(
 
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "list_tasks",
+    {
+      description: "List board tasks with optional project and task filters",
+      inputSchema: listTasksInputShape,
+    },
+    async ({ projectId, limit, offset, q, column, includeArchived }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_tasks",
+        `column=${column ?? "all"} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined} includeArchived=${includeArchived ?? false}`,
+      );
+      const response = await client.request<unknown>("GET", "/api/tasks", {
+        query: {
+          projectId: resolvedProjectId,
+          limit,
+          offset,
+          q,
+          column,
+          includeArchived,
+        },
+      });
+      const tasks = shapeListedTasks(response.data);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              tasks,
+              pagination: { limit, offset },
+            }),
+          },
+        ],
       };
     },
   );
@@ -217,6 +324,44 @@ export function buildServer(
             type: "text",
             text: JSON.stringify({ workflowResults: workflowResults.data }),
           },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "list_projects",
+    {
+      description: "List configured projects",
+      inputSchema: {},
+    },
+    async () => {
+      auditLog("list_projects");
+      const projects = await client.listProjects();
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ projects: projects.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "read_project_settings",
+    {
+      description: "Read project or instance settings",
+      inputSchema: { projectId: z.string().min(1).optional() },
+    },
+    async ({ projectId }) => {
+      const effectiveProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "read_project_settings",
+        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+      );
+      const settings = await client.getSettings(effectiveProjectId);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ settings: settings.data }) },
         ],
       };
     },

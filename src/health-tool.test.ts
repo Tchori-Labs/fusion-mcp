@@ -60,9 +60,12 @@ describe("get_board_health", () => {
       const tools = await harness.client.listTools();
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "list_tasks",
         "get_task",
         "get_task_logs",
         "get_task_workflow_results",
+        "list_projects",
+        "read_project_settings",
       ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
