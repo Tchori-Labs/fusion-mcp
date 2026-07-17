@@ -1,0 +1,31 @@
+{
+  "manifestVersion": 1,
+  "tools": [
+    {
+      "name": "get_board_health",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_projects",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "read_project_settings",
+      "inputSchema": {
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
+}
