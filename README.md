@@ -68,6 +68,16 @@ Project-scoped read tools take an optional `projectId`; `get_board_health` and
 creation/communication. Full parameter and endpoint mapping is in
 [`SPEC.md`](./SPEC.md#tool-catalogue).
 
+## Branching & releases
+
+- **`develop`** is the default branch. All feature/fix PRs (including
+  agent-generated `fusion/*` branches) target `develop`.
+- **`main`** is the release branch. It only moves via a PR from `develop` (or a
+  `release/*` / `hotfix/*` branch); this is enforced by a repository ruleset
+  plus the `Release guard` workflow. Direct pushes, force pushes, and branch
+  deletion are blocked on `main`.
+- To cut a release, open a PR `develop` → `main` and merge it (merge commit).
+
 ## Development
 
 Requires Node 22 (`.nvmrc`) and pnpm.
