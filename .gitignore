@@ -30,3 +30,5 @@ briefs/
 fusion.db
 fusion.db-wal
 fusion.db-shm
+# Fusion-managed runtime worktrees
+.worktrees/
