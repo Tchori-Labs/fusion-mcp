@@ -110,9 +110,10 @@ creation/communication.
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
-**Implementation status:** `get_board_health`, `list_projects`, and
-`read_project_settings` are implemented. The remaining tools are delivered by
-tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
+**Implementation status:** `get_board_health`, `list_projects`,
+`read_project_settings`, and `list_tasks` are implemented. The remaining tools
+are delivered by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing
+`FusionClient`.
 
 ## Transports
 
@@ -174,8 +175,8 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
     auth-exempt health.
   - `health-tool.test.ts` — end-to-end through an in-memory MCP client/server
     pair (`InMemoryTransport.createLinkedPair()`): asserts the tool set is
-    exactly `[get_board_health]` (governance), and the health/system merge with
-    and without a token.
+    exactly `[get_board_health, list_tasks]` (governance), and the health/system
+    merge with and without a token.
 - **FM tasks** add tests alongside each new tool: projectId scoping, pagination
   edges, input-validation failures, and (FM-003) an integration test that spins
   the HTTP server on an ephemeral port against a mocked Fusion.
