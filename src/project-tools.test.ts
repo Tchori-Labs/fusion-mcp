@@ -84,6 +84,8 @@ describe("project read tools", () => {
         "read_project_settings",
         "list_tasks",
         "create_task",
+        "pause_task",
+        "unpause_task",
       ]);
       const settingsTool = tools.tools.find(
         ({ name }) => name === "read_project_settings",
