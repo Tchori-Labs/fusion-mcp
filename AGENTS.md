@@ -11,6 +11,19 @@ value of this project is that it *cannot* do certain things; do not add tools or
 code paths that merge PRs, approve plans, change settings, delete/archive tasks,
 restart the system, or publish anything outside the board.
 
+## Branch model
+
+- `develop` is the integration branch. The board squash-lands your completed
+  task work there automatically and pushes it to origin. You never push to
+  `develop` yourself and never open PRs targeting it.
+- `main` is the release branch. It only moves by a human-reviewed
+  `develop → main` release PR. Nothing you do may target `main`.
+- Your work happens on the task's own `fusion/<task-id>` branch inside the
+  task worktree. Commit there; the board does the rest.
+- Merge conflicts are never auto-resolved (`mergeConflictStrategy: abort`):
+  if your branch conflicts with `develop`, the merge parks for a human.
+  Never force-push shared branches.
+
 ## Project layout
 
 Target layout — FM-000 establishes it; until then only the contract files
@@ -75,8 +88,10 @@ comment, or convenience:
   against any other repository.
 - **Never open issues on any other repository.** Issues, if any, go only to
   `Tchori-Labs/fusion-mcp`.
-- **Never merge PRs.** Merging is human-only. Auto-merge is off by design and
-  must stay off.
+- **Never merge GitHub pull requests.** PR merging is human-only. The board's
+  automatic squash integration of completed task work into `develop` is board
+  machinery, not an agent merge capability — never invoke merge endpoints
+  yourself.
 - **Never run `fn pr merge` or `fn pr automerge`** (or any equivalent that
   merges, approves, or publishes).
 - **Never commit secrets or tokens.** `FUSION_TOKEN` comes from the environment
@@ -85,5 +100,28 @@ comment, or convenience:
 
 ## Deliverable for every task
 
-A pull request against `Tchori-Labs/fusion-mcp` `main`, with all five commands
-green and tests included. **Do not merge it** — a human does that.
+A completed board task with all five commands green and tests included. The
+board integrates your work into `develop`; you do not merge anything, target
+`main`, or open release PRs — humans handle releases.
+
+## Working the board (Missions & Planning)
+
+- Hierarchy: Mission → Milestone → Slice → Feature → Task; status rolls up
+  only. Use Missions; never create Roadmap objects (a second, competing
+  planning model).
+- Plan approval is `require-all`: every task parks at `awaiting-approval`
+  until a human approves its plan. Only the approve-plan action clears that
+  state. Never try to unpause, retry, or steer around an approval hold.
+- Replanning: a human comment on a triage/todo task that already has a real
+  PROMPT.md sends it to `needs-replan`. A byte-identical replan skips
+  re-approval; a changed plan asks again.
+- Feature `acceptanceCriteria` are validated against ALL criteria by an AI
+  judge (behavioral assertions additionally run in a sandbox and default to
+  fail). Write acceptance criteria as concrete, testable statements. Three
+  failed fix attempts block the feature until an operator intervenes.
+- Missions link to goals manually — link at creation. Max 5 active goals per
+  project; archive to make room.
+- `comment` = context/note (may trigger replanning on unstarted tasks);
+  `steer` = redirect a running agent.
+- Select a workflow (`fn_workflow_select`) only for tasks you created or on
+  explicit user request; never reroute the task you are currently executing.
