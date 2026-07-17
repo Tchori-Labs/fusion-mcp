@@ -12,9 +12,10 @@ to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
 > Status: **the executable scaffold, `get_board_health`, `list_projects`,
 > `list_tasks`, `get_task`, `get_task_logs`, `get_task_workflow_results`,
-> `read_project_settings`, and the governed `create_task` write tool are
-> implemented.** The remaining catalogue tools are future FM-00x work in
-> [`briefs/`](./briefs), delivered as separate human-reviewed PRs.
+> `read_project_settings`, and the governed `create_task`, `pause_task`, and
+> `unpause_task` write tools are implemented.** The remaining catalogue tools
+> are future FM-00x work in [`briefs/`](./briefs), delivered as separate
+> human-reviewed PRs.
 
 ## Configuration
 
@@ -59,9 +60,9 @@ Register with Claude Code (stdio):
 
 Implemented: `get_board_health` · `list_projects` · `list_tasks` · `get_task` ·
 `get_task_logs` · `get_task_workflow_results` · `read_project_settings` ·
-`create_task`.
+`create_task` · `pause_task` · `unpause_task`.
 
-Planned: `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
+Planned: `comment_task` · `steer_task`.
 
 Project-scoped read tools take an optional `projectId` where declared;
 `get_board_health` and `list_projects` are instance-scoped. Write tools are
@@ -76,6 +77,14 @@ Creates a task with `description` (required) and only the optional safe fields
 `FUSION_DEFAULT_PROJECT_ID`; when resolved, it is sent in the JSON POST body,
 never in the query string. Other fields accepted by the underlying API are
 intentionally not surfaced.
+
+### `pause_task` and `unpause_task`
+
+Each tool requires only a task `id`. `pause_task` sends a body-free `POST` to
+`/api/tasks/:id/pause`; `unpause_task` sends a body-free `POST` to
+`/api/tasks/:id/unpause`. Both URL-encode the id and audit only that id to
+stderr. They expose no project, free-text, destructive, or system-control
+parameters, and neither audit nor result output includes the bearer token.
 
 ## Development
 
