@@ -19,14 +19,17 @@ These are the reason the project exists in this shape. They are enforced by
 *what tools exist*, not by runtime policy checks:
 
 1. **No merge / approve / publish.** There is no tool to merge a PR, approve a
-   plan, enable auto-merge, or otherwise publish work outside the board. Fusion's
-   own auto-merge stays off; merge is a human action.
+   plan, enable auto-merge, or otherwise publish work outside the board.
+   Merging GitHub PRs is a human action. The board's automatic squash
+   integration of completed task work into `develop` is board machinery
+   outside this server — no MCP client gains any merge capability from it.
 2. **No settings mutation.** Project/instance settings are **read-only** through
    this server. There is no tool to change settings.
 3. **No destructive task ops.** No delete, no archive, no bulk mutation.
 4. **No system control.** No restart, no shutdown, no daemon control.
-5. **Writes are scoped to task creation and communication only** — create a task,
-   comment, steer, pause, unpause. Nothing else.
+5. **Writes are scoped to task creation, task communication, and board
+   reprioritisation only** — create a task, comment, steer, pause, unpause,
+   and move a task between columns (`move_task`). No other mutation exists.
 6. **Every tool call is audited** to stderr: timestamp, tool name, and a
    secret-free argument summary.
 7. **Secrets never appear in output.** The token comes from the environment only
@@ -106,14 +109,30 @@ creation/communication.
 | `steer_task` | write | `id: string`, `text: string` (1–2000 chars) | `POST /api/tasks/:id/steer` |
 | `pause_task` | write | `id: string` | `POST /api/tasks/:id/pause` |
 | `unpause_task` | write | `id: string` | `POST /api/tasks/:id/unpause` |
+| `list_approvals` | read | `projectId?: string` | `GET /api/approvals` |
+| `get_approval` | read | `id: string`, `projectId?: string` | `GET /api/approvals/:id` |
+| `list_missions` | read | `projectId?: string`, `includeDrafts?: boolean` | `GET /api/missions` |
+| `get_mission` | read | `id: string`, `projectId?: string` | `GET /api/missions/:id` (+ `/status`, `/health` folded into the result) |
+| `move_task` | write | `id: string`, `column: string`, `projectId?: string` | `POST /api/tasks/:id/move` |
 
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
+The approvals and missions tools are strictly read-only: the approval
+*decision* endpoint and every mission mutation (create/edit/autopilot/
+planning-start) are deliberately not wrapped — deciding and steering the
+hierarchy stay human. `move_task` is the one write beyond
+creation/communication: board reprioritisation only, approved as a
+deliberate governance-surface expansion (2026-07-17).
+
 **Implementation status:** `get_board_health`, `list_projects`,
 `read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`, and
-`get_task_workflow_results` are implemented. The remaining tools are delivered
-by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
+`get_task_workflow_results` are implemented. The original write set
+(`create_task`, `comment_task`, `steer_task`, `pause_task`, `unpause_task`)
+is delivered by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing
+`FusionClient`. `list_approvals`, `get_approval`, `list_missions`,
+`get_mission`, and `move_task` were added by the human-approved 2026-07-17
+spec change and are delivered by their own board tasks.
 
 ## Transports
 
