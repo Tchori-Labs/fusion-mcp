@@ -11,18 +11,17 @@ value of this project is that it *cannot* do certain things; do not add tools or
 code paths that merge PRs, approve plans, change settings, delete/archive tasks,
 restart the system, or publish anything outside the board.
 
-## Branch model
+## Branch model & releases
 
-- `develop` is the integration branch. The board squash-lands your completed
-  task work there automatically and pushes it to origin. You never push to
-  `develop` yourself and never open PRs targeting it.
-- `main` is the release branch. It only moves by a human-reviewed
-  `develop → main` release PR. Nothing you do may target `main`.
-- Your work happens on the task's own `fusion/<task-id>` branch inside the
-  task worktree. Commit there; the board does the rest.
-- Merge conflicts are never auto-resolved (`mergeConflictStrategy: abort`):
-  if your branch conflicts with `develop`, the merge parks for a human.
-  Never force-push shared branches.
+- Integration branch is `develop`. Fusion cuts each task's worktree from
+  `develop` and squash-merges it back to `develop` automatically — you don't
+  open PRs or choose the target branch.
+- `main` is release-only and protected. It changes solely via a reviewed
+  `develop → main` PR + version tag at release time.
+- Do NOT assume `main` is the working trunk. New CI, scripts, docs, and release
+  tooling must treat `develop` as the day-to-day branch and `main` as the
+  released line (e.g. CI runs on both; dev-status links point at `develop`).
+- Hotfixes that must skip `develop` are created as tasks with `baseBranch=main`.
 
 ## Project layout
 
