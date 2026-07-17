@@ -67,6 +67,8 @@ describe("get_board_health", () => {
         "read_project_settings",
         "list_tasks",
         "create_task",
+        "comment_task",
+        "steer_task",
         "pause_task",
         "unpause_task",
       ]);

@@ -460,6 +460,57 @@ export function buildServer(
   );
 
   server.registerTool(
+    "comment_task",
+    {
+      description: "Post a comment to a task",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        text: z.string().min(1, "text is required"),
+        author: z.string().optional(),
+      },
+    },
+    async ({ id, text, author }) => {
+      auditLog("comment_task", `id=${id}`);
+      const comment = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/comments`,
+        { body: author === undefined ? { text } : { text, author } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ comment: comment.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "steer_task",
+    {
+      description: "Send a steering message to a running task",
+      inputSchema: {
+        id: z.string().min(1, "id is required"),
+        text: z.string().min(1).max(2000),
+      },
+    },
+    async ({ id, text }) => {
+      auditLog("steer_task", `id=${id}`);
+      const steered = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/steer`,
+        { body: { text } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ steered: steered.data }) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
     "pause_task",
     {
       description: "Pause a board task",

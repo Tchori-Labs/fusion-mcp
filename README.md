@@ -12,10 +12,10 @@ to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
 > Status: **the executable scaffold, `get_board_health`, `list_projects`,
 > `list_tasks`, `get_task`, `get_task_logs`, `get_task_workflow_results`,
-> `read_project_settings`, and the governed `create_task`, `pause_task`, and
-> `unpause_task` write tools are implemented.** The remaining catalogue tools
-> are future FM-00x work in [`briefs/`](./briefs), delivered as separate
-> human-reviewed PRs.
+> `read_project_settings`, and the governed `create_task`, `comment_task`,
+> `steer_task`, `pause_task`, and `unpause_task` write tools are implemented.**
+> The remaining catalogue tools are future FM-00x work in [`briefs/`](./briefs),
+> delivered as separate human-reviewed PRs.
 
 ## Configuration
 
@@ -60,9 +60,19 @@ Register with Claude Code (stdio):
 
 Implemented: `get_board_health` · `list_projects` · `list_tasks` · `get_task` ·
 `get_task_logs` · `get_task_workflow_results` · `read_project_settings` ·
-`create_task` · `pause_task` · `unpause_task`.
+`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
 
-Planned: `comment_task` · `steer_task`.
+### Task communication
+
+- `comment_task` requires `id` and non-empty `text`, with optional `author`, and
+  posts a comment to the selected task.
+- `steer_task` requires `id` and `text` of 1–2000 characters, and sends that
+  message to a running task or agent.
+
+Both tools are non-destructive and audited with the task id only. Message text,
+comment authors, request bodies, and authentication tokens are never included in
+audit output. Neither tool exposes project, settings, approval, publishing, or
+system-control parameters.
 
 Project-scoped read tools take an optional `projectId` where declared;
 `get_board_health` and `list_projects` are instance-scoped. Write tools are

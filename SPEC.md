@@ -111,9 +111,11 @@ creation/communication.
 Fusion API may accept are intentionally not surfaced.
 
 **Implementation status:** `get_board_health`, `list_projects`, `list_tasks`,
-`get_task`, `get_task_logs`, `get_task_workflow_results`, and
-`read_project_settings` are implemented. The remaining tools are delivered by
-tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
+`get_task`, `get_task_logs`, `get_task_workflow_results`,
+`read_project_settings`, `create_task`, `comment_task`, `steer_task`,
+`pause_task`, and `unpause_task` are implemented. The remaining tools are
+delivered by tasks FM-001 … FM-004 (see `briefs/`) on top of the existing
+`FusionClient`.
 
 ## Transports
 
