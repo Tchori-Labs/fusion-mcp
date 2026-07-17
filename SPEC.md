@@ -165,6 +165,11 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
   alternative, `undici`'s `MockAgent` + `setGlobalDispatcher` can intercept the
   global fetch, but plain injection is the default because it needs no extra
   dependency and pins the exact call arguments.
+- **Hermetic enforcement:** the mandatory `vitest.config.ts` loads a global
+  guard through `setupFiles` that fails outbound TCP, TLS, HTTP(S), and DNS
+  attempts immediately. Networked checks belong only in the opt-in live suite
+  under its own separate config, which must omit the guard; the mandatory gate
+  has no bypass, allowlist, or environment-controlled escape hatch.
 - **Layers under test in the scaffold:**
   - `config.test.ts` — defaults, overrides, trailing-slash normalisation, blank
     optionals collapsing to unset, invalid URL/port rejection, `requireToken`.

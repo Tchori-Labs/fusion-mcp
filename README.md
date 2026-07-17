@@ -75,14 +75,15 @@ Requires Node 22 (`.nvmrc`) and pnpm.
 pnpm install
 pnpm lint         # eslint (flat config)
 pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (no network — fetch is injected/mocked)
+pnpm test         # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
 pnpm build        # tsc → dist/
 pnpm dev          # tsx src/index.ts --stdio
 ```
 
-CI runs all of the above as the required **Build & Test** check. Contributor
-rules — including the cross-repo / no-merge protocol — are in
-[`AGENTS.md`](./AGENTS.md).
+CI runs all of the above as the required **Build & Test** check. The mandatory
+suite's guard has no bypass; opt-in live checks use a separate Vitest config
+that does not load it. Contributor rules — including the cross-repo / no-merge
+protocol — are in [`AGENTS.md`](./AGENTS.md).
 
 ## License
 
