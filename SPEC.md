@@ -88,8 +88,9 @@ turn the client into a fat SDK.
 
 ## Tool catalogue
 
-Read tools accept an optional `projectId` (except `get_board_health`, which is
-instance-scoped). Write tools are scoped strictly to task creation/communication.
+Project-scoped read tools accept an optional `projectId`; `get_board_health`
+and `list_projects` are instance-scoped. Write tools are scoped strictly to task
+creation/communication.
 
 | Tool | Class | Params (type) | Backing endpoint |
 | --- | --- | --- | --- |
@@ -109,9 +110,9 @@ instance-scoped). Write tools are scoped strictly to task creation/communication
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
-**Scaffold status:** only `get_board_health` is implemented today as a
-proof-of-life. The remaining tools are delivered by tasks FM-001 … FM-004 (see
-`briefs/`) on top of the existing `FusionClient`.
+**Implementation status:** `get_board_health`, `list_projects`, and
+`read_project_settings` are implemented. The remaining tools are delivered by
+tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
 
 ## Transports
 
