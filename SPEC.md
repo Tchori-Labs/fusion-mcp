@@ -114,6 +114,15 @@ Fusion API may accept are intentionally not surfaced.
 `read_project_settings` are implemented. The remaining tools are delivered by
 tasks FM-001 … FM-004 (see `briefs/`) on top of the existing `FusionClient`.
 
+### Tool contract compatibility
+
+[`tool-contract.json`](./tool-contract.json) is the generated compatibility
+baseline for implemented tool names and their MCP input JSON Schemas. CI compares
+the live in-memory MCP surface with that manifest and rejects breaking drift or
+any tool outside this catalogue. Governed additive changes are permitted; the
+versioning, deprecation, and regenerate-don't-hand-edit policy is documented in
+[`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md).
+
 ## Transports
 
 - **stdio** (default) — for local use with Claude Code / Desktop. Started with no
