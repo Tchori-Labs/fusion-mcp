@@ -169,6 +169,14 @@ describe("get_board_health", () => {
       });
 
       expect(result.isError).toBe(true);
+      expect(textResult(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Fusion request failed: GET /api/health (status 503)",
+          status: 503,
+          details: { method: "GET", path: "/api/health" },
+        },
+      });
       expect(JSON.stringify(result)).not.toContain("unavailable");
     } finally {
       await harness.close();

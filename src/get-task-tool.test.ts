@@ -324,10 +324,18 @@ describe("get_task", () => {
         const rendered = JSON.stringify(result);
 
         expect(result.isError).toBe(true);
-        expect(rendered).toContain("id");
+        expect(textResult(result)).toMatchObject({
+          error: {
+            code: "validation",
+            details: [{ path: ["id"] }],
+          },
+        });
         expect(rendered).not.toContain(secretMarker);
         expect(fetchMock).not.toHaveBeenCalled();
-        expect(process.stderr.write).not.toHaveBeenCalled();
+        expect(process.stderr.write).toHaveBeenCalledOnce();
+        expect(process.stderr.write).toHaveBeenCalledWith(
+          expect.stringMatching(/tool=get_task validation=failed\n$/),
+        );
       } finally {
         await harness.close();
       }
@@ -352,9 +360,14 @@ describe("get_task", () => {
       const rendered = JSON.stringify(result);
 
       expect(result.isError).toBe(true);
-      expect(rendered).toContain(
-        "Fusion request failed: GET /api/tasks/FN-404 (status 404)",
-      );
+      expect(textResult(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Fusion request failed: GET /api/tasks/FN-404 (status 404)",
+          status: 404,
+          details: { method: "GET", path: "/api/tasks/FN-404" },
+        },
+      });
       expect(rendered).not.toContain(responseMarker);
       expect(rendered).not.toContain(secretMarker);
     } finally {
