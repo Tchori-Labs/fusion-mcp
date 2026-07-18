@@ -65,7 +65,8 @@ Planned: `list_tasks` · `get_task` · `get_task_logs` ·
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
 `list_projects` are instance-scoped. Write tools are scoped to task
 creation/communication. Full parameter and endpoint mapping is in
-[`SPEC.md`](./SPEC.md#tool-catalogue).
+[`SPEC.md`](./SPEC.md#tool-catalogue). Governed failures use the stable
+[`SPEC error envelope`](./SPEC.md#error-contract).
 
 ## Development
 

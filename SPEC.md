@@ -126,6 +126,51 @@ a new major baseline. The versioning, deprecation, and
 regenerate-don't-hand-edit policy is documented in
 [`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md).
 
+## Error contract
+
+Every governed tool failure is returned as an MCP tool result with `isError:
+true`. The first text content item contains one canonical JSON envelope:
+
+```json
+{
+  "error": {
+    "code": "upstream_error",
+    "message": "Upstream request failed",
+    "status": 503
+  }
+}
+```
+
+`status` and `details` are optional. `status` appears only for
+`upstream_error` or `invalid_upstream_payload`, and only when a valid upstream
+HTTP status is known. `details` contains independently sanitized structured
+context (currently validation issue paths and fixed diagnostics) and may gain
+additive fields over time. Custom schema/refinement messages are untrusted and
+are never copied into the envelope. Successful tool result shapes are
+unchanged.
+
+The exhaustive stable error codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `validation` | Tool arguments did not satisfy the tool's input schema. |
+| `missing_token` | An authenticated operation was called without a configured token. |
+| `upstream_error` | Fusion returned a non-success status or the request failed at the transport layer. |
+| `timeout` | The request exceeded the configured upstream timeout. |
+| `invalid_upstream_payload` | Fusion returned a success response whose payload could not be safely decoded or validated. |
+| `internal` | An unexpected internal failure occurred; its message is deliberately generic. |
+
+All six codes and their meanings are a public, compatibility-sensitive
+contract. Removing or renaming a code, or changing its meaning, is a breaking
+change and must follow the versioning and deprecation policy. The token,
+upstream response bodies, raw received argument values, exception metadata, and
+stack traces never appear in any envelope field. In particular, `internal`
+always uses a fixed generic message.
+
+FN-019's generated baseline remains intentionally scoped to tool names and input
+schemas. The error envelope is a separate contract dimension governed by the
+same compatibility policy and documented normatively here.
+
 ## Transports
 
 - **stdio** (default) — for local use with Claude Code / Desktop. Started with no
