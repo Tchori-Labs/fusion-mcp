@@ -1,6 +1,6 @@
 # MCP tool contract versioning
 
-The public MCP tool contract consists of each exposed tool name and its input JSON Schema. [`../tool-contract.json`](../tool-contract.json) is the normalized, generated history of published compatibility baselines. The Tool catalogue in [`../SPEC.md`](../SPEC.md#tool-catalogue) governs both the allowed tool names and each tool's allowed top-level input properties.
+The public MCP tool contract consists of each exposed tool name, its input JSON Schema, and the canonical tool error envelope and stable error codes documented in [`SPEC.md`](../SPEC.md#error-contract). [`../tool-contract.json`](../tool-contract.json) is the normalized, generated history of published tool-name and input-schema compatibility baselines. It does not encode error result shapes. The Tool catalogue in [`../SPEC.md`](../SPEC.md#tool-catalogue) governs both the allowed tool names and each tool's allowed top-level input properties.
 
 ## Compatibility policy
 
@@ -12,7 +12,9 @@ Additive changes may ship within the current major version when they remain insi
 
 An out-of-catalogue tool or input property is a governance violation, not a compatible addition. Contract checks reject it even when it is otherwise additive. Update the code allowlist only in the same reviewed change as the SPEC catalogue.
 
-Removing or renaming a tool, removing an accepted property, making an optional property required, changing a property's type or format, or tightening an input constraint is a breaking change. Intentional breaking changes require all of the following:
+Removing or renaming a tool, removing an accepted property, making an optional property required, changing a property's type or format, or tightening an input constraint is a breaking change. The six error codes and their meanings are also compatibility-sensitive: removing or renaming a code, changing its meaning, or changing the canonical envelope incompatibly is a breaking change. Additive safe fields within `details` remain compatible.
+
+Intentional breaking changes require all of the following:
 
 1. **Major version bump:** increment the package/server major version.
 2. **Migration guide:** publish an entry that identifies affected tools, old and new inputs, and the client action required.
@@ -34,6 +36,6 @@ pnpm contract:check
 
 The generator compares the live contract with every committed baseline for the current package major before writing. Compatible changes append a normalized baseline instead of overwriting the published history. Breaking changes fail generation; follow all four policy steps above, including changing the package major, before regenerating. Governance violations always fail, even after a major bump.
 
-Review the complete `tool-contract.json` diff. Confirm that every added tool and input property appears in the SPEC catalogue and that schema changes match the intended compatibility class. Commit the generated file with the implementation.
+Review the complete `tool-contract.json` diff. Confirm that every added tool and input property appears in the SPEC catalogue and that schema changes match the intended compatibility class. Commit the generated file with the implementation. Because this generated baseline is intentionally input-schema-scoped, review error-envelope compatibility directly against the normative contract in SPEC rather than hand-editing error shapes into `tool-contract.json`.
 
 **Never hand-edit `tool-contract.json` or remove its baseline history.** Regenerate it so normalization, ordering, and the SDK-derived JSON Schema stay reproducible. Running `pnpm contract:generate` twice must leave the second run with no diff.
