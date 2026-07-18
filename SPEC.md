@@ -255,6 +255,14 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
   mandatory suite and belong only in the opt-in live suite under its own
   explicit config, which must omit the guard; the mandatory gate has no bypass,
   allowlist, or environment-controlled escape hatch.
+- **Sanctioned live path:** `pnpm test:live` uses the separate,
+  guard-free `vitest.live.config.ts` and includes only `src/**/*.live.test.ts`.
+  It remains disabled unless `FUSION_MCP_LIVE` is truthy and both
+  `FUSION_BASE_URL` and `FUSION_TOKEN` are present. The suite drives real MCP
+  clients over stdio and Streamable HTTP through read-only health journeys; it
+  is never part of the required CI check. Exact invocation, isolation, cleanup,
+  secret handling, and release acceptance are documented in
+  [`docs/live-integration.md`](./docs/live-integration.md).
 - **Layers under test in the scaffold:**
   - `config.test.ts` — defaults, overrides, trailing-slash normalisation, blank
     optionals collapsing to unset, invalid URL/port rejection, `requireToken`.

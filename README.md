@@ -111,8 +111,17 @@ compatibility and deprecation policy.
 CI runs all of the above as the required **Build & Test** check. The mandatory
 suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
 `pnpm test` and may run only as opt-in live checks through a separate, explicit
-Vitest config that does not load the guard. Contributor rules — including the
-cross-repo / no-merge protocol — are in [`AGENTS.md`](./AGENTS.md).
+Vitest config that does not load the guard.
+
+### Live integration suite (opt-in)
+
+After `pnpm build`, `pnpm test:live` can exercise real MCP clients over stdio and
+Streamable HTTP when explicitly enabled with live instance credentials. See the
+[runbook and release checklist](./docs/live-integration.md) for exact gating,
+invocation, isolation, cleanup, and secret-handling instructions.
+
+Contributor rules — including the cross-repo / no-merge protocol — are in
+[`AGENTS.md`](./AGENTS.md).
 
 ## License
 
