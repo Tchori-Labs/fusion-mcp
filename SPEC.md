@@ -184,10 +184,9 @@ hot path.
    holding `FUSION_BASE_URL`, `FUSION_TOKEN`, `FUSION_DEFAULT_PROJECT_ID`, `PORT`.
    The token is provisioned via `fn daemon --token-only` and written to a
    root-only env file (`0600`).
-3. The HTTP transport binds to loopback only. Public exposure is via a
-   **Cloudflare Tunnel** in front of `127.0.0.1:$PORT`, gated by **Cloudflare
-   Access** (same pattern as the rest of the Tchori infra). No port is opened on
-   the host firewall.
+3. The HTTP transport binds to loopback only. Public exposure is via an
+   **access-controlled tunnel** in front of `127.0.0.1:$PORT`, with authentication
+   enforced by an access proxy. No port is opened on the host firewall.
 4. Liveness: `GET /api/health` on Fusion, plus the MCP server's own process
    supervision by systemd (`Restart=on-failure`).
 
