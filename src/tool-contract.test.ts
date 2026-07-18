@@ -453,6 +453,25 @@ describe("published baseline history", () => {
     ).toThrow(/Bump the package major/u);
   });
 
+  it("preserves and rejects incompatible manifest-version history", () => {
+    const artifact = updateToolContractArtifact(
+      undefined,
+      committedManifest,
+      currentPackageMajor,
+    );
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      manifestVersion: committedManifest.manifestVersion + 1,
+    };
+
+    expect(artifact.baselines[0]?.manifestVersion).toBe(
+      committedManifest.manifestVersion,
+    );
+    expect(() =>
+      updateToolContractArtifact(artifact, candidate, currentPackageMajor),
+    ).toThrow(/manifest-version-changed/u);
+  });
+
   it("refuses to overwrite a same-major error contract baseline", () => {
     const artifact = updateToolContractArtifact(
       undefined,

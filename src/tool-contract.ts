@@ -67,7 +67,9 @@ export interface ToolErrorContractManifest {
 }
 
 export interface ToolContractManifest {
-  manifestVersion: typeof TOOL_CONTRACT_MANIFEST_VERSION;
+  // Baseline history may contain older manifest formats. Keep the stored value
+  // instead of typing every historical entry as the currently generated one.
+  manifestVersion: number;
   errorContract?: ToolErrorContractManifest;
   tools: readonly ToolContractEntry[];
 }
@@ -167,7 +169,8 @@ export function normalizeManifest(
   manifest: ToolContractManifest,
 ): ToolContractManifest {
   return {
-    manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+    // Normalization must not rewrite compatibility-significant version history.
+    manifestVersion: manifest.manifestVersion,
     ...(manifest.errorContract === undefined
       ? {}
       : {
