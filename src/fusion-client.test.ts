@@ -116,6 +116,7 @@ describe("FusionClient", () => {
       message: "Invalid Fusion request path",
       method: "GET",
       path: "https://foreign.invalid/api/health",
+      kind: "network",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -174,6 +175,7 @@ describe("FusionClient", () => {
       method: "GET",
       path: "/api/health",
       status: 503,
+      kind: "http",
     });
     expect(String(error)).not.toContain(marker);
   });
@@ -189,6 +191,12 @@ describe("FusionClient", () => {
 
     expect(cancel).toHaveBeenCalledOnce();
     expect(error).toBeInstanceOf(FusionError);
+    expect(error).toMatchObject({
+      method: "GET",
+      path: "/api/health",
+      status: 200,
+      kind: "invalid_payload",
+    });
     expect(String(error)).toContain("Fusion returned invalid JSON");
     expect(String(error)).not.toContain(marker);
   });
@@ -203,7 +211,11 @@ describe("FusionClient", () => {
     const error = await client.getHealth().catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(FusionError);
-    expect(error).toMatchObject({ method: "GET", path: "/api/health" });
+    expect(error).toMatchObject({
+      method: "GET",
+      path: "/api/health",
+      kind: "network",
+    });
     expect(String(error)).not.toContain(marker);
   });
 
@@ -225,6 +237,7 @@ describe("FusionClient", () => {
       message: "Fusion request timed out: GET /api/health",
       method: "GET",
       path: "/api/health",
+      kind: "timeout",
     });
     await vi.advanceTimersByTimeAsync(10);
 
