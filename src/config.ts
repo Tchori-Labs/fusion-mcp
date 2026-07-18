@@ -14,6 +14,13 @@ export interface Config {
 
 export type Environment = Record<string, string | undefined>;
 
+export class MissingTokenError extends Error {
+  constructor() {
+    super("FUSION_TOKEN is required for authenticated operations");
+    this.name = "MissingTokenError";
+  }
+}
+
 function optionalValue(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized === "" ? undefined : normalized;
@@ -78,7 +85,7 @@ export function parseConfig(env: Environment = process.env): Config {
 
 export function requireToken(config: Config): string {
   if (config.token === undefined) {
-    throw new Error("FUSION_TOKEN is required for authenticated operations");
+    throw new MissingTokenError();
   }
   return config.token;
 }

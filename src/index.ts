@@ -4,7 +4,10 @@ import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  type ToolCallback,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   StreamableHTTPServerTransport,
@@ -19,6 +22,12 @@ import {
   FusionError,
   type FetchLike,
 } from "./fusion-client.js";
+import {
+  formatValidationError,
+  withToolErrorEnvelope,
+} from "./tool-error.js";
+
+const emptyInputShape = {} satisfies z.ZodRawShape;
 
 const listTasksInputShape = {
   projectId: z.string().optional(),
@@ -29,7 +38,24 @@ const listTasksInputShape = {
   includeArchived: z.boolean().optional(),
 } satisfies z.ZodRawShape;
 
-const listTasksInputSchema = z.object(listTasksInputShape);
+const getTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const getTaskLogsInputShape = {
+  id: z.string().min(1, "id is required"),
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
+} satisfies z.ZodRawShape;
+
+const getTaskWorkflowResultsInputShape = {
+  id: z.string().min(1, "id is required"),
+} satisfies z.ZodRawShape;
+
+const readProjectSettingsInputShape = {
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
 
 const listedTaskSchema = z
   .object({
@@ -49,6 +75,7 @@ function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
     throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
       method: "GET",
       path: "/api/tasks",
+      kind: "invalid_payload",
     });
   }
   return result.data;
@@ -137,9 +164,25 @@ export function auditLog(tool: string, argsSummary = ""): void {
   );
 }
 
-function isListTasksCall(request: unknown): request is {
+interface GovernedInputSchema {
+  schema: z.ZodType;
+  allowedPathSegments: ReadonlySet<string>;
+}
+
+type GovernedInputSchemas = Map<string, GovernedInputSchema>;
+
+type StoredRequestHandler = (
+  request: unknown,
+  extra: unknown,
+) => unknown | Promise<unknown>;
+
+interface RequestHandlerStore {
+  _requestHandlers: Map<string, StoredRequestHandler>;
+}
+
+function isToolCall(request: unknown): request is {
   method: "tools/call";
-  params: { name: "list_tasks"; arguments?: unknown };
+  params: { name: string; arguments?: unknown };
 } {
   if (typeof request !== "object" || request === null) {
     return false;
@@ -148,23 +191,65 @@ function isListTasksCall(request: unknown): request is {
   if (method !== "tools/call" || typeof params !== "object" || params === null) {
     return false;
   }
-  return (params as { name?: unknown }).name === "list_tasks";
+  return typeof (params as { name?: unknown }).name === "string";
 }
 
-function auditInvalidListTasksCalls(server: McpServer): void {
+function normalizeInvalidToolCalls(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+): void {
+  const protocol = server.server as unknown as RequestHandlerStore;
   const setRequestHandler = server.server.setRequestHandler.bind(server.server);
 
   server.server.setRequestHandler = (schema, handler) => {
-    setRequestHandler(schema, async (request, extra) => {
-      if (
-        isListTasksCall(request) &&
-        !listTasksInputSchema.safeParse(request.params.arguments ?? {}).success
-      ) {
-        auditLog("list_tasks", "validation=failed");
+    setRequestHandler(schema, handler);
+
+    // Both Server.setRequestHandler and Protocol.setRequestHandler parse the
+    // strict tools/call schema before invoking their public callbacks. Wrap the
+    // installed protocol handler so malformed argument containers can still
+    // receive the governed tool envelope before either SDK parser rejects them.
+    const installedHandler = protocol._requestHandlers.get("tools/call");
+    if (installedHandler === undefined) {
+      return;
+    }
+
+    protocol._requestHandlers.set("tools/call", async (request, extra) => {
+      if (isToolCall(request)) {
+        const input = inputSchemas.get(request.params.name);
+        const rawArguments =
+          request.params.arguments === undefined
+            ? {}
+            : request.params.arguments;
+        const parsed = input?.schema.safeParse(rawArguments);
+        if (input !== undefined && parsed !== undefined && !parsed.success) {
+          auditLog(request.params.name, "validation=failed");
+          return formatValidationError(
+            parsed.error.issues,
+            input.allowedPathSegments,
+          );
+        }
       }
-      return await handler(request, extra);
+      return await installedHandler(request, extra);
     });
   };
+}
+
+function registerGovernedTool<InputShape extends z.ZodRawShape>(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+  name: string,
+  config: { description: string; inputSchema: InputShape },
+  handler: ToolCallback<InputShape>,
+): void {
+  inputSchemas.set(name, {
+    schema: z.object(config.inputSchema),
+    allowedPathSegments: new Set(Object.keys(config.inputSchema)),
+  });
+  server.registerTool(
+    name,
+    config,
+    withToolErrorEnvelope(handler) as ToolCallback<InputShape>,
+  );
 }
 
 export function buildServer(
@@ -174,13 +259,16 @@ export function buildServer(
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
-  auditInvalidListTasksCalls(server);
+  const governedInputSchemas: GovernedInputSchemas = new Map();
+  normalizeInvalidToolCalls(server, governedInputSchemas);
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_board_health",
     {
       description: "Check Fusion board health and available system information",
-      inputSchema: {},
+      inputSchema: emptyInputShape,
     },
     async () => {
       auditLog("get_board_health");
@@ -204,7 +292,9 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "list_tasks",
     {
       description: "List board tasks with optional project and task filters",
@@ -242,14 +332,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_task",
     {
       description: "Get a single board task",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        projectId: z.string().optional(),
-      },
+      inputSchema: getTaskInputShape,
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
@@ -271,15 +360,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_task_logs",
     {
       description: "Get a paginated page of task logs",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        limit: z.number().int().positive().max(200).default(50),
-        offset: z.number().int().nonnegative().default(0),
-      },
+      inputSchema: getTaskLogsInputShape,
     },
     async ({ id, limit, offset }) => {
       auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
@@ -305,11 +392,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_task_workflow_results",
     {
       description: "Get workflow-step results for a task",
-      inputSchema: { id: z.string().min(1, "id is required") },
+      inputSchema: getTaskWorkflowResultsInputShape,
     },
     async ({ id }) => {
       auditLog("get_task_workflow_results", `id=${id}`);
@@ -329,11 +418,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "list_projects",
     {
       description: "List configured projects",
-      inputSchema: {},
+      inputSchema: emptyInputShape,
     },
     async () => {
       auditLog("list_projects");
@@ -346,11 +437,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "read_project_settings",
     {
       description: "Read project or instance settings",
-      inputSchema: { projectId: z.string().min(1).optional() },
+      inputSchema: readProjectSettingsInputShape,
     },
     async ({ projectId }) => {
       const effectiveProjectId = projectId ?? config.defaultProjectId;

@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx src/index.ts --stdio"
+    "dev": "tsx src/index.ts --stdio",
+    "contract:generate": "tsx scripts/generate-tool-contract.ts",
+    "contract:check": "vitest run src/tool-contract.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

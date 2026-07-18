@@ -227,7 +227,10 @@ describe("get_task_logs", () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain(secretMarker);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(process.stderr.write).not.toHaveBeenCalled();
+      expect(process.stderr.write).toHaveBeenCalledOnce();
+      expect(process.stderr.write).toHaveBeenCalledWith(
+        expect.stringMatching(/tool=get_task_logs validation=failed\n$/),
+      );
     } finally {
       await harness.close();
     }
@@ -252,7 +255,10 @@ describe("get_task_logs", () => {
         expect(JSON.stringify(result)).toContain("id");
         expect(JSON.stringify(result)).not.toContain(secretMarker);
         expect(fetchMock).not.toHaveBeenCalled();
-        expect(process.stderr.write).not.toHaveBeenCalled();
+        expect(process.stderr.write).toHaveBeenCalledOnce();
+        expect(process.stderr.write).toHaveBeenCalledWith(
+          expect.stringMatching(/tool=get_task_logs validation=failed\n$/),
+        );
       } finally {
         await harness.close();
       }
