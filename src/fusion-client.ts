@@ -14,20 +14,33 @@ export interface FusionResponse<T> {
   headers: Headers;
 }
 
+export type FusionErrorKind =
+  | "http"
+  | "timeout"
+  | "invalid_payload"
+  | "network";
+
 export class FusionError extends Error {
   readonly method: string;
   readonly path: string;
   readonly status: number | undefined;
+  readonly kind: FusionErrorKind;
 
   constructor(
     message: string,
-    metadata: { method: string; path: string; status?: number },
+    metadata: {
+      method: string;
+      path: string;
+      status?: number;
+      kind?: FusionErrorKind;
+    },
   ) {
     super(message);
     this.name = "FusionError";
     this.method = metadata.method;
     this.path = metadata.path;
     this.status = metadata.status;
+    this.kind = metadata.kind ?? (metadata.status === undefined ? "network" : "http");
   }
 }
 
@@ -80,7 +93,12 @@ export class FusionClient {
         await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion request failed: ${normalizedMethod} ${path} (status ${response.status})`,
-          { method: normalizedMethod, path, status: response.status },
+          {
+            method: normalizedMethod,
+            path,
+            status: response.status,
+            kind: "http",
+          },
         );
       }
 
@@ -92,7 +110,12 @@ export class FusionClient {
         await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion returned invalid JSON: ${normalizedMethod} ${path}`,
-          { method: normalizedMethod, path, status: response.status },
+          {
+            method: normalizedMethod,
+            path,
+            status: response.status,
+            kind: "invalid_payload",
+          },
         );
       }
 
@@ -106,7 +129,7 @@ export class FusionClient {
       }
       throw new FusionError(
         `Fusion request failed: ${normalizedMethod} ${path}`,
-        { method: normalizedMethod, path },
+        { method: normalizedMethod, path, kind: "network" },
       );
     } finally {
       clearTimeout(timeout);
@@ -142,6 +165,7 @@ export class FusionClient {
       throw new FusionError("Invalid Fusion request path", {
         method,
         path,
+        kind: "network",
       });
     }
 
@@ -157,6 +181,7 @@ export class FusionClient {
     return new FusionError(`Fusion request timed out: ${method} ${path}`, {
       method,
       path,
+      kind: "timeout",
     });
   }
 }
