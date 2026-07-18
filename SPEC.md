@@ -146,7 +146,7 @@ a new major baseline. The versioning, deprecation, and
 regenerate-don't-hand-edit policy is documented in
 [`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md).
 
-### Error contract
+## Error contract
 
 Every governed tool failure is returned as an MCP tool result with `isError:
 true`. The first text content item contains this canonical JSON envelope:

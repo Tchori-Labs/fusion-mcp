@@ -117,7 +117,12 @@ describe("get_task_workflow_results", () => {
         expect(rendered).toContain("id");
         expect(rendered).not.toContain(secretMarker);
         expect(fetchMock).not.toHaveBeenCalled();
-        expect(process.stderr.write).not.toHaveBeenCalled();
+        expect(process.stderr.write).toHaveBeenCalledOnce();
+        expect(process.stderr.write).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /tool=get_task_workflow_results validation=failed\n$/,
+          ),
+        );
       } finally {
         await harness.close();
       }
