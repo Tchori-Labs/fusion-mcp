@@ -87,6 +87,12 @@ function httpFactoryHarness() {
         return server;
       },
     );
+  server.close = vi
+    .fn()
+    .mockImplementation((callback: (error?: Error) => void) => {
+      callback();
+      return server;
+    });
 
   return {
     factory: vi.fn((requestListener: RequestListener) => {
@@ -117,12 +123,8 @@ describe("HTTP trusted hosts", () => {
     const httpTransportFactory: NonNullable<
       RuntimeDependencies["httpTransportFactory"]
     > = vi.fn((options) => {
-      const handleRequest = vi.fn(async (request, response) => {
-        if (!options.allowedHosts?.includes(request.headers.host ?? "")) {
-          response.statusCode = 403;
-          response.end("Invalid Host header");
-          return;
-        }
+      const handleRequest = vi.fn(async (_request, response) => {
+        await options.onsessioninitialized?.("trusted-host-session");
         processed();
         response.end();
       });
@@ -133,13 +135,23 @@ describe("HTTP trusted hosts", () => {
       close: vi.fn().mockResolvedValue(undefined),
     };
 
-    await startHttpServer(parseConfig({ PORT: "4242" }), {
+    const handle = await startHttpServer(parseConfig({ PORT: "4242" }), {
       env: {
         FUSION_MCP_ALLOWED_HOSTS:
           "mcp.example.test,mcp-alt.example.test:8443",
       },
       httpServerFactory: http.factory,
       httpTransportFactory,
+      httpRequestBodyParser: vi.fn().mockResolvedValue({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "trusted-host-test", version: "1.0.0" },
+        },
+      }),
       serverFactory: () => mcpServer,
     });
 
@@ -154,30 +166,42 @@ describe("HTTP trusted hosts", () => {
       end: vi.fn(),
     };
     http.getListener()(
-      { url: "/mcp", headers: { host: "mcp.example.test" } } as never,
+      {
+        url: "/mcp",
+        method: "POST",
+        headers: { host: "mcp.example.test" },
+      } as never,
       trustedResponse as never,
     );
     http.getListener()(
-      { url: "/mcp", headers: { host: "untrusted.example.test" } } as never,
+      {
+        url: "/mcp",
+        method: "POST",
+        headers: { host: "untrusted.example.test" },
+      } as never,
       rejectedResponse as never,
     );
 
     await vi.waitFor(() => {
       expect(trustedResponse.end).toHaveBeenCalledOnce();
-      expect(rejectedResponse.end).toHaveBeenCalledWith("Invalid Host header");
+      expect(rejectedResponse.end).toHaveBeenCalledOnce();
     });
     expect(processed).toHaveBeenCalledOnce();
     expect(trustedResponse.statusCode).toBe(200);
     expect(rejectedResponse.statusCode).toBe(403);
-    expect(httpTransportFactory).toHaveBeenCalledWith({
-      enableJsonResponse: true,
-      enableDnsRebindingProtection: true,
-      allowedHosts: [
-        "127.0.0.1:4242",
-        "mcp.example.test",
-        "mcp-alt.example.test:8443",
-      ],
-    });
+    expect(httpTransportFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionIdGenerator: expect.any(Function),
+        enableJsonResponse: true,
+        enableDnsRebindingProtection: true,
+        allowedHosts: [
+          "127.0.0.1:4242",
+          "mcp.example.test",
+          "mcp-alt.example.test:8443",
+        ],
+      }),
+    );
+    await handle.shutdown();
   });
 
   it("rejects malformed trusted-host configuration before listening", async () => {

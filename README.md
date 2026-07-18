@@ -29,6 +29,7 @@ All configuration is via environment variables:
 | `FUSION_TOKEN` | for non-health calls | — | Instance daemon bearer token (`fn_<hex>`). |
 | `FUSION_DEFAULT_PROJECT_ID` | no | — | Project used when a tool omits `projectId`. |
 | `PORT` | no | `4141` | HTTP transport port (loopback). |
+| `FUSION_MCP_ALLOWED_HOSTS` | no | — | Additional exact `Host` values trusted behind a tunnel. |
 | `FUSION_REQUEST_TIMEOUT_MS` | no | `15000` | Per-request timeout. |
 
 The token is read from the environment only and is never logged or returned.
@@ -43,6 +44,12 @@ node dist/index.js --stdio     # explicit
 # Streamable HTTP — for deployment behind a tunnel
 node dist/index.js --http      # serves http://127.0.0.1:$PORT/mcp
 ```
+
+HTTP mode issues an `mcp-session-id` during initialization and reuses the same
+server transport for subsequent POST and GET/SSE requests. Clients can terminate
+their session with DELETE; SIGINT and SIGTERM stop the listener and close all
+remaining sessions gracefully. The listener remains loopback-only and validates
+exact `Host` values to prevent DNS rebinding.
 
 Register with Claude Code (stdio):
 

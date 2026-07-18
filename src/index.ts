@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -14,6 +15,7 @@ import {
   type StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
@@ -89,12 +91,22 @@ export interface BuildServerOptions {
 export type RunMode = "stdio" | "http";
 
 type RuntimeMcpServer = Pick<McpServer, "connect" | "close">;
-type HttpTransport = Transport &
+type HttpTransport = Pick<Transport, "close"> &
   Pick<StreamableHTTPServerTransport, "handleRequest">;
 
 export interface HttpServerLike {
   listen(port: number, hostname: string, callback: () => void): this;
   once(event: "error", listener: (error: Error) => void): this;
+  close(callback: (error?: Error) => void): this;
+}
+
+export interface HttpServerHandle extends HttpServerLike {
+  shutdown(): Promise<void>;
+}
+
+export interface SignalSource {
+  on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  off(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
 
 export interface RuntimeDependencies {
@@ -106,6 +118,9 @@ export interface RuntimeDependencies {
     options: StreamableHTTPServerTransportOptions,
   ) => HttpTransport;
   httpServerFactory?: (listener: RequestListener) => HttpServerLike;
+  httpRequestBodyParser?: (request: IncomingMessage) => Promise<unknown>;
+  signalSource?: SignalSource;
+  setExitCode?: (exitCode: number) => void;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
 
@@ -488,11 +503,98 @@ function defaultServerFactory(config: Config): RuntimeMcpServer {
   return buildServer(config);
 }
 
+interface HttpSession {
+  transport: HttpTransport;
+  server: RuntimeMcpServer;
+}
+
+interface HttpRuntimeState {
+  shuttingDown: boolean;
+}
+
+type HttpSessionRegistry = Map<string, HttpSession>;
+
+const MAX_HTTP_REQUEST_BODY_BYTES = 1_048_576;
+
+async function parseHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    byteLength += buffer.byteLength;
+    if (byteLength > MAX_HTTP_REQUEST_BODY_BYTES) {
+      throw new Error("request body too large");
+    }
+    chunks.push(buffer);
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
+function requestHeader(
+  request: IncomingMessage,
+  name: "host" | "mcp-session-id",
+): string | undefined {
+  const value = request.headers[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function writeJsonRpcError(
+  response: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+): void {
+  response.statusCode = status;
+  response.setHeader?.("content-type", "application/json");
+  response.end(
+    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
+  );
+}
+
+function closeSessionResources(session: HttpSession): Promise<void> {
+  return Promise.all([
+    session.transport.close().catch(() => undefined),
+    session.server.close().catch(() => undefined),
+  ]).then(() => undefined);
+}
+
+function removeRegisteredSession(
+  sessionId: string,
+  session: HttpSession,
+  sessions: HttpSessionRegistry,
+  dependencies: RuntimeDependencies,
+): boolean {
+  if (sessions.get(sessionId) !== session) {
+    return false;
+  }
+
+  sessions.delete(sessionId);
+  (dependencies.stderr ?? process.stderr).write(
+    `fusion-mcp: session=${sessionId} event=close\n`,
+  );
+  return true;
+}
+
+function stopHttpServer(httpServer: HttpServerLike): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      httpServer.close(() => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
 async function dispatchHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: Config,
   allowedHosts: readonly string[],
+  sessions: HttpSessionRegistry,
+  pendingSessions: Set<HttpSession>,
+  runtimeState: HttpRuntimeState,
   dependencies: RuntimeDependencies,
 ): Promise<void> {
   const path = request.url?.split("?", 1)[0];
@@ -502,20 +604,118 @@ async function dispatchHttpRequest(
     return;
   }
 
+  const host = requestHeader(request, "host");
+  if (host === undefined || !allowedHosts.includes(host)) {
+    writeJsonRpcError(response, 403, -32_000, "Invalid Host header");
+    return;
+  }
+
+  if (runtimeState.shuttingDown) {
+    writeJsonRpcError(response, 503, -32_000, "Server is shutting down");
+    return;
+  }
+
+  const sessionId = requestHeader(request, "mcp-session-id");
+  if (sessionId !== undefined) {
+    const session = sessions.get(sessionId);
+    if (session === undefined) {
+      writeJsonRpcError(response, 404, -32_001, "Session not found");
+      return;
+    }
+
+    try {
+      await session.transport.handleRequest(request, response);
+    } catch {
+      if (!response.headersSent) {
+        response.statusCode = 500;
+        response.end("MCP request failed");
+      }
+      (dependencies.stderr ?? process.stderr).write(
+        "fusion-mcp: HTTP request failed\n",
+      );
+    }
+    return;
+  }
+
+  if (request.method !== "POST") {
+    writeJsonRpcError(
+      response,
+      400,
+      -32_000,
+      "Bad Request: Mcp-Session-Id header is required",
+    );
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await (
+      dependencies.httpRequestBodyParser ?? parseHttpRequestBody
+    )(request);
+  } catch {
+    writeJsonRpcError(response, 400, -32_700, "Parse error");
+    return;
+  }
+
+  if (!isInitializeRequest(parsedBody)) {
+    writeJsonRpcError(
+      response,
+      400,
+      -32_000,
+      "Bad Request: Mcp-Session-Id header is required",
+    );
+    return;
+  }
+
+  if (runtimeState.shuttingDown) {
+    writeJsonRpcError(response, 503, -32_000, "Server is shutting down");
+    return;
+  }
+
   const serverFactory = dependencies.serverFactory ?? defaultServerFactory;
   const transportFactory =
     dependencies.httpTransportFactory ??
     ((options) => new StreamableHTTPServerTransport(options));
   const server = serverFactory(config);
+  const sessionRef: { current?: HttpSession } = {};
   const transport = transportFactory({
+    sessionIdGenerator: randomUUID,
     enableJsonResponse: true,
     enableDnsRebindingProtection: true,
     allowedHosts: [...allowedHosts],
+    onsessioninitialized: (initializedSessionId) => {
+      const session = sessionRef.current;
+      if (session === undefined || runtimeState.shuttingDown) {
+        return;
+      }
+      pendingSessions.delete(session);
+      sessions.set(initializedSessionId, session);
+      (dependencies.stderr ?? process.stderr).write(
+        `fusion-mcp: session=${initializedSessionId} event=init\n`,
+      );
+    },
+    onsessionclosed: async (closedSessionId) => {
+      const session = sessionRef.current;
+      if (
+        session !== undefined &&
+        removeRegisteredSession(
+          closedSessionId,
+          session,
+          sessions,
+          dependencies,
+        )
+      ) {
+        await session.server.close().catch(() => undefined);
+      }
+    },
   });
+  const session = { transport, server };
+  sessionRef.current = session;
+  pendingSessions.add(session);
 
   try {
     await server.connect(transport as unknown as Transport);
-    await transport.handleRequest(request, response);
+    await transport.handleRequest(request, response, parsedBody);
   } catch {
     if (!response.headersSent) {
       response.statusCode = 500;
@@ -525,14 +725,16 @@ async function dispatchHttpRequest(
       "fusion-mcp: HTTP request failed\n",
     );
   } finally {
-    await server.close().catch(() => undefined);
+    if (pendingSessions.delete(session)) {
+      await closeSessionResources(session);
+    }
   }
 }
 
 export async function startHttpServer(
   config: Config,
   dependencies: RuntimeDependencies = {},
-): Promise<HttpServerLike> {
+): Promise<HttpServerHandle> {
   const factory =
     dependencies.httpServerFactory ??
     ((listener: RequestListener) => createServer(listener));
@@ -540,20 +742,68 @@ export async function startHttpServer(
     config,
     dependencies.env ?? process.env,
   );
+  const sessions: HttpSessionRegistry = new Map();
+  const pendingSessions = new Set<HttpSession>();
+  const runtimeState: HttpRuntimeState = { shuttingDown: false };
 
-  return await new Promise<HttpServerLike>((resolve, reject) => {
+  return await new Promise<HttpServerHandle>((resolve, reject) => {
     const httpServer = factory((request, response) => {
       void dispatchHttpRequest(
         request,
         response,
         config,
         allowedHosts,
+        sessions,
+        pendingSessions,
+        runtimeState,
         dependencies,
       );
     });
+    const signalSource = dependencies.signalSource ?? process;
+    let shutdownPromise: Promise<void> | undefined;
+
+    const shutdown = (): Promise<void> => {
+      if (shutdownPromise !== undefined) {
+        return shutdownPromise;
+      }
+
+      runtimeState.shuttingDown = true;
+      signalSource.off("SIGINT", handleSignal);
+      signalSource.off("SIGTERM", handleSignal);
+      const stopped = stopHttpServer(httpServer);
+      const registeredSessions = [...sessions.entries()];
+      const resources = new Set<HttpSession>([
+        ...registeredSessions.map(([, session]) => session),
+        ...pendingSessions,
+      ]);
+      sessions.clear();
+      pendingSessions.clear();
+      for (const [sessionId] of registeredSessions) {
+        (dependencies.stderr ?? process.stderr).write(
+          `fusion-mcp: session=${sessionId} event=close\n`,
+        );
+      }
+
+      shutdownPromise = Promise.all(
+        [...resources].map(closeSessionResources),
+      )
+        .then(() => stopped)
+        .then(() => undefined);
+      return shutdownPromise;
+    };
+
+    const handleSignal = (): void => {
+      void shutdown().then(() => {
+        (dependencies.setExitCode ?? ((code) => { process.exitCode = code; }))(0);
+      });
+    };
+
+    const handle = Object.assign(httpServer, { shutdown });
     httpServer.once("error", reject);
     httpServer.listen(config.port, "127.0.0.1", () => {
-      resolve(httpServer);
+      signalSource.on("SIGINT", handleSignal);
+      signalSource.on("SIGTERM", handleSignal);
+      resolve(handle);
     });
   });
 }

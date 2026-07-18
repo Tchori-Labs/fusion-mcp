@@ -200,11 +200,12 @@ always uses a fixed generic message.
 
 - **stdio** (default) — for local use with Claude Code / Desktop. Started with no
   flag, or `--stdio` for clarity.
-- **Streamable HTTP** (`--http`) — for deployment behind a tunnel. The scaffold
-  ships a minimal **stateless** implementation (fresh server + transport per
-  request, JSON responses, bound to `127.0.0.1:$PORT/mcp`). FM-003 hardens this
-  with per-session handling (`mcp-session-id`), graceful shutdown, and audit
-  logging integration.
+- **Streamable HTTP** (`--http`) — for deployment behind a tunnel. It maintains
+  one server + transport pair per `mcp-session-id`, supports POST requests and
+  GET/SSE streams, and tears sessions down through DELETE. It is bound to
+  `127.0.0.1:$PORT/mcp`, preserves exact-Host DNS-rebinding protection, and
+  gracefully closes the listener and every session on SIGINT or SIGTERM. Tool
+  calls and session lifecycle events are audited to stderr.
 
 ## Audit logging
 
