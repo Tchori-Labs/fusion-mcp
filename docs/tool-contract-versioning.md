@@ -1,6 +1,6 @@
 # MCP tool contract versioning
 
-The public MCP tool contract consists of each exposed tool name, its input JSON Schema, and the canonical tool error envelope and stable error codes documented in [`SPEC.md`](../SPEC.md#error-contract). [`../tool-contract.json`](../tool-contract.json) is the normalized, generated history of published tool-name and input-schema compatibility baselines. It does not encode error result shapes. The Tool catalogue in [`../SPEC.md`](../SPEC.md#tool-catalogue) governs both the allowed tool names and each tool's allowed top-level input properties.
+The public MCP tool contract consists of each exposed tool name, its input JSON Schema, and the canonical tool error envelope and stable error codes documented in [`SPEC.md`](../SPEC.md#error-contract). [`../tool-contract.json`](../tool-contract.json) is the normalized, generated history of published compatibility baselines for all three dimensions. The Tool catalogue in [`../SPEC.md`](../SPEC.md#tool-catalogue) governs both the allowed tool names and each tool's allowed top-level input properties.
 
 ## Compatibility policy
 
@@ -36,6 +36,6 @@ pnpm contract:check
 
 The generator compares the live contract with every committed baseline for the current package major before writing. Compatible changes append a normalized baseline instead of overwriting the published history. Breaking changes fail generation; follow all four policy steps above, including changing the package major, before regenerating. Governance violations always fail, even after a major bump.
 
-Review the complete `tool-contract.json` diff. Confirm that every added tool and input property appears in the SPEC catalogue and that schema changes match the intended compatibility class. Commit the generated file with the implementation. Because this generated baseline is intentionally input-schema-scoped, review error-envelope compatibility directly against the normative contract in SPEC rather than hand-editing error shapes into `tool-contract.json`.
+Review the complete `tool-contract.json` diff. Confirm that every added tool and input property appears in the SPEC catalogue, schema changes match the intended compatibility class, and the generated `errorContract` matches the normative contract in SPEC. Same-major checks reject removing a stable error code, changing a code's meaning, or incompatibly changing the envelope. Commit the generated file with the implementation.
 
 **Never hand-edit `tool-contract.json` or remove its baseline history.** Regenerate it so normalization, ordering, and the SDK-derived JSON Schema stay reproducible. Running `pnpm contract:generate` twice must leave the second run with no diff.

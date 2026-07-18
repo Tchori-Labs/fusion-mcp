@@ -7,6 +7,7 @@ import {
   formatToolError,
   formatValidationError,
   TOOL_ERROR_CODES,
+  TOOL_ERROR_CONTRACT,
   withToolErrorEnvelope,
   type ToolErrorEnvelope,
 } from "./tool-error.js";
@@ -46,6 +47,9 @@ describe("tool error contract", () => {
       "invalid_upstream_payload",
       "internal",
     ]);
+    expect(TOOL_ERROR_CONTRACT.codes.map(({ code }) => code)).toEqual(
+      TOOL_ERROR_CODES,
+    );
   });
 
   it("maps missing tokens without a status", () => {
@@ -62,42 +66,67 @@ describe("tool error contract", () => {
       kind: "http" as const,
       status: 503,
       code: "upstream_error",
+      message: "Upstream request failed",
       expectedStatus: 503,
     },
     {
       kind: "network" as const,
       status: undefined,
       code: "upstream_error",
+      message: "Upstream request failed",
       expectedStatus: undefined,
     },
     {
       kind: "timeout" as const,
       status: undefined,
       code: "timeout",
+      message: "Upstream request timed out",
       expectedStatus: undefined,
     },
     {
       kind: "invalid_payload" as const,
       status: 200,
       code: "invalid_upstream_payload",
+      message: "Upstream returned an invalid payload",
       expectedStatus: 200,
     },
-  ])("maps $kind FusionError to $code", ({ kind, status, code, expectedStatus }) => {
-    const result = formatToolError(fusionError(kind, status));
-    const parsed = envelope(result);
+  ])(
+    "maps $kind FusionError to $code",
+    ({ kind, status, code, message, expectedStatus }) => {
+      const result = formatToolError(fusionError(kind, status));
+      const parsed = envelope(result);
 
-    expect(parsed.error).toMatchObject({
-      code,
-      message: `Safe ${kind} failure`,
-      details: { method: "GET", path: "/api/tasks/FN-1" },
+      expect(parsed.error).toEqual({
+        code,
+        message,
+        ...(expectedStatus === undefined ? {} : { status: expectedStatus }),
+      });
+      expect(JSON.stringify(result)).not.toContain(bodyMarker);
+      expect(JSON.stringify(result)).not.toContain(secretMarker);
+    },
+  );
+
+  it("does not trust FusionError messages or metadata", () => {
+    const hostile = new FusionError(
+      `${secretMarker} ${bodyMarker} ${stackMarker}`,
+      {
+        method: `GET ${secretMarker}`,
+        path: `/api/tasks/${bodyMarker}`,
+        status: 700,
+        kind: "http",
+      },
+    );
+    hostile.stack = `${stackMarker}\n${secretMarker}`;
+
+    const result = formatToolError(hostile);
+
+    expect(envelope(result)).toEqual({
+      error: { code: "upstream_error", message: "Upstream request failed" },
     });
-    if (expectedStatus === undefined) {
-      expect(parsed.error).not.toHaveProperty("status");
-    } else {
-      expect(parsed.error.status).toBe(expectedStatus);
-    }
-    expect(JSON.stringify(result)).not.toContain(bodyMarker);
-    expect(JSON.stringify(result)).not.toContain(secretMarker);
+    const rendered = JSON.stringify(result);
+    expect(rendered).not.toContain(secretMarker);
+    expect(rendered).not.toContain(bodyMarker);
+    expect(rendered).not.toContain(stackMarker);
   });
 
   it("uses a fixed internal message and omits error details", () => {

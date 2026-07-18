@@ -147,9 +147,7 @@ describe("get_task_workflow_results", () => {
       const rendered = JSON.stringify(result);
 
       expect(result.isError).toBe(true);
-      expect(rendered).toContain(
-        "Fusion request failed: GET /api/tasks/FN-503/workflow-results (status 503)",
-      );
+      expect(rendered).toContain("Upstream request failed");
       expect(rendered).not.toContain(responseMarker);
       expect(rendered).not.toContain(secretMarker);
     } finally {

@@ -56,6 +56,13 @@ function settingsSchema(propertySchema: JsonSchema, required = false): JsonSchem
   };
 }
 
+function requiredErrorContract(manifest: ToolContractManifest) {
+  if (manifest.errorContract === undefined) {
+    throw new Error("manifest has no canonical error contract");
+  }
+  return manifest.errorContract;
+}
+
 function expectBreaking(
   baseline: ToolContractManifest,
   candidate: ToolContractManifest,
@@ -228,6 +235,46 @@ describe("diffToolContract compatible additions", () => {
 });
 
 describe("diffToolContract breaking changes", () => {
+  it("rejects a removed stable error code", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.filter(({ code }) => code !== "internal"),
+      },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-code-removed");
+  });
+
+  it("rejects a changed stable error-code meaning", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.map((entry) =>
+          entry.code === "timeout"
+            ? { ...entry, meaning: "some other failure" }
+            : entry,
+        ),
+      },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-code-meaning-changed");
+  });
+
+  it("rejects an incompatible canonical envelope change", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: { ...errorContract, isError: false },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-contract-changed");
+  });
+
   it("rejects a removed tool", () => {
     const candidate = {
       ...committedManifest,
@@ -399,6 +446,26 @@ describe("published baseline history", () => {
       tools: committedManifest.tools.filter(
         ({ name }) => name !== "read_project_settings",
       ),
+    };
+
+    expect(() =>
+      updateToolContractArtifact(artifact, candidate, currentPackageMajor),
+    ).toThrow(/Bump the package major/u);
+  });
+
+  it("refuses to overwrite a same-major error contract baseline", () => {
+    const artifact = updateToolContractArtifact(
+      undefined,
+      committedManifest,
+      currentPackageMajor,
+    );
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.filter(({ code }) => code !== "timeout"),
+      },
     };
 
     expect(() =>

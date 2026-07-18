@@ -286,9 +286,7 @@ describe("list_tasks", () => {
       const rendered = JSON.stringify(result);
 
       expect(result.isError).toBe(true);
-      expect(rendered).toContain(
-        "Fusion request failed: GET /api/tasks (status 500)",
-      );
+      expect(rendered).toContain("Upstream request failed");
       expect(rendered).not.toContain("unsafe-upstream-marker");
       expect(rendered).not.toContain("fake-token-marker");
     } finally {

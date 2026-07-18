@@ -363,9 +363,8 @@ describe("get_task", () => {
       expect(textResult(result)).toEqual({
         error: {
           code: "upstream_error",
-          message: "Fusion request failed: GET /api/tasks/FN-404 (status 404)",
+          message: "Upstream request failed",
           status: 404,
-          details: { method: "GET", path: "/api/tasks/FN-404" },
         },
       });
       expect(rendered).not.toContain(responseMarker);

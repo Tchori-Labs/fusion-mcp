@@ -172,9 +172,8 @@ describe("get_board_health", () => {
       expect(textResult(result)).toEqual({
         error: {
           code: "upstream_error",
-          message: "Fusion request failed: GET /api/health (status 503)",
+          message: "Upstream request failed",
           status: 503,
-          details: { method: "GET", path: "/api/health" },
         },
       });
       expect(JSON.stringify(result)).not.toContain("unavailable");

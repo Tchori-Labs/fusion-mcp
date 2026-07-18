@@ -4,6 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { parseConfig, type Config } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
+import { TOOL_ERROR_CONTRACT } from "./tool-error.js";
 
 export const TOOL_CONTRACT_MANIFEST_VERSION = 1 as const;
 export const TOOL_CONTRACT_ARTIFACT_VERSION = 1 as const;
@@ -58,8 +59,21 @@ export interface ToolContractEntry {
   inputSchema: JsonSchema;
 }
 
+export interface ToolErrorContractManifest {
+  envelopeVersion: number;
+  isError: boolean;
+  contentType: string;
+  textEncoding: string;
+  requiredFields: readonly string[];
+  optionalFields: readonly string[];
+  codes: readonly { code: string; meaning: string }[];
+  statusCodes: readonly string[];
+  detailsExtensible: boolean;
+}
+
 export interface ToolContractManifest {
   manifestVersion: typeof TOOL_CONTRACT_MANIFEST_VERSION;
+  errorContract?: ToolErrorContractManifest;
   tools: readonly ToolContractEntry[];
 }
 
@@ -74,6 +88,12 @@ export interface ToolContractArtifact {
 
 export type ContractChangeKind =
   | "manifest-version-changed"
+  | "error-contract-added"
+  | "error-contract-removed"
+  | "error-contract-changed"
+  | "error-code-added"
+  | "error-code-removed"
+  | "error-code-meaning-changed"
   | "tool-removed"
   | "tool-added"
   | "ungoverned-tool"
@@ -123,6 +143,7 @@ export async function generateToolManifest(
 
     return {
       manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+      errorContract: TOOL_ERROR_CONTRACT,
       tools: tools.map(({ name, inputSchema }) => ({ name, inputSchema })),
     };
   } finally {
@@ -152,6 +173,13 @@ export function normalizeManifest(
 ): ToolContractManifest {
   return {
     manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+    ...(manifest.errorContract === undefined
+      ? {}
+      : {
+          errorContract: normalizeValue(
+            manifest.errorContract,
+          ) as ToolErrorContractManifest,
+        }),
     tools: [...manifest.tools]
       .map((tool) => ({
         name: tool.name,
@@ -601,6 +629,106 @@ function compareSchema(
   }
 }
 
+function compareErrorContract(
+  baseline: ToolErrorContractManifest | undefined,
+  candidate: ToolErrorContractManifest | undefined,
+  result: ToolContractDiff,
+): void {
+  if (baseline === undefined) {
+    if (candidate !== undefined) {
+      result.additive.push(
+        change(
+          "error-contract-added",
+          "*",
+          "errorContract",
+          "canonical tool error contract was added",
+        ),
+      );
+    }
+    return;
+  }
+  if (candidate === undefined) {
+    result.breaking.push(
+      change(
+        "error-contract-removed",
+        "*",
+        "errorContract",
+        "canonical tool error contract was removed",
+      ),
+    );
+    return;
+  }
+
+  const { codes: baselineCodes, ...baselineEnvelope } = baseline;
+  const { codes: candidateCodes, ...candidateEnvelope } = candidate;
+  if (stableValue(baselineEnvelope) !== stableValue(candidateEnvelope)) {
+    result.breaking.push(
+      change(
+        "error-contract-changed",
+        "*",
+        "errorContract",
+        "canonical tool error envelope changed",
+      ),
+    );
+  }
+
+  const baselineByCode = new Map(
+    baselineCodes.map(({ code, meaning }) => [code, meaning]),
+  );
+  const candidateByCode = new Map(
+    candidateCodes.map(({ code, meaning }) => [code, meaning]),
+  );
+  if (
+    baselineByCode.size !== baselineCodes.length ||
+    candidateByCode.size !== candidateCodes.length
+  ) {
+    result.breaking.push(
+      change(
+        "error-contract-changed",
+        "*",
+        "errorContract.codes",
+        "error code entries must be unique",
+      ),
+    );
+  }
+
+  for (const [code, meaning] of baselineByCode) {
+    const candidateMeaning = candidateByCode.get(code);
+    if (candidateMeaning === undefined) {
+      result.breaking.push(
+        change(
+          "error-code-removed",
+          "*",
+          `errorContract.codes.${code}`,
+          `error code ${code} was removed or renamed`,
+        ),
+      );
+    } else if (candidateMeaning !== meaning) {
+      result.breaking.push(
+        change(
+          "error-code-meaning-changed",
+          "*",
+          `errorContract.codes.${code}.meaning`,
+          `meaning of error code ${code} changed`,
+        ),
+      );
+    }
+  }
+
+  for (const [code] of candidateByCode) {
+    if (!baselineByCode.has(code)) {
+      result.additive.push(
+        change(
+          "error-code-added",
+          "*",
+          `errorContract.codes.${code}`,
+          `error code ${code} was added`,
+        ),
+      );
+    }
+  }
+}
+
 export function diffToolContract(
   baseline: ToolContractManifest,
   candidate: ToolContractManifest,
@@ -624,6 +752,8 @@ export function diffToolContract(
       ),
     );
   }
+
+  compareErrorContract(baseline.errorContract, candidate.errorContract, result);
 
   for (const tool of candidate.tools) {
     if (!governedNames.has(tool.name)) {

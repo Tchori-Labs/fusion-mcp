@@ -16,6 +16,40 @@ export const TOOL_ERROR_CODES = [
 
 export type ToolErrorCode = (typeof TOOL_ERROR_CODES)[number];
 
+// Serialized into tool-contract.json so same-major compatibility checks protect
+// the canonical envelope and each stable code's meaning alongside input schemas.
+export const TOOL_ERROR_CONTRACT = {
+  envelopeVersion: 1,
+  isError: true,
+  contentType: "text",
+  textEncoding: "json",
+  requiredFields: ["error", "error.code", "error.message"],
+  optionalFields: ["error.status", "error.details"],
+  codes: [
+    { code: "validation", meaning: "tool arguments failed validation" },
+    { code: "missing_token", meaning: "authentication token is not configured" },
+    { code: "upstream_error", meaning: "upstream HTTP or transport request failed" },
+    { code: "timeout", meaning: "upstream request timed out" },
+    {
+      code: "invalid_upstream_payload",
+      meaning: "upstream success payload could not be decoded or validated",
+    },
+    { code: "internal", meaning: "unexpected internal failure" },
+  ],
+  statusCodes: ["upstream_error", "invalid_upstream_payload"],
+  detailsExtensible: true,
+} as const satisfies {
+  envelopeVersion: number;
+  isError: true;
+  contentType: "text";
+  textEncoding: "json";
+  requiredFields: readonly string[];
+  optionalFields: readonly string[];
+  codes: readonly { code: ToolErrorCode; meaning: string }[];
+  statusCodes: readonly ToolErrorCode[];
+  detailsExtensible: true;
+};
+
 export interface ToolErrorEnvelope {
   error: {
     code: ToolErrorCode;
@@ -37,6 +71,12 @@ function errorResult(envelope: ToolErrorEnvelope): CallToolResult {
   };
 }
 
+function upstreamStatus(status: number | undefined): number | undefined {
+  return Number.isInteger(status) && status !== undefined && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
 export function formatToolError(error: unknown): CallToolResult {
   if (error instanceof MissingTokenError) {
     return errorResult({
@@ -48,40 +88,39 @@ export function formatToolError(error: unknown): CallToolResult {
   }
 
   if (error instanceof FusionError) {
-    const details = { method: error.method, path: error.path };
     switch (error.kind) {
-      case "http":
+      case "http": {
+        const status = upstreamStatus(error.status);
         return errorResult({
           error: {
             code: "upstream_error",
-            message: error.message,
-            ...(error.status === undefined ? {} : { status: error.status }),
-            details,
+            message: "Upstream request failed",
+            ...(status === undefined ? {} : { status }),
           },
         });
+      }
       case "timeout":
         return errorResult({
           error: {
             code: "timeout",
-            message: error.message,
-            details,
+            message: "Upstream request timed out",
           },
         });
-      case "invalid_payload":
+      case "invalid_payload": {
+        const status = upstreamStatus(error.status);
         return errorResult({
           error: {
             code: "invalid_upstream_payload",
-            message: error.message,
-            ...(error.status === undefined ? {} : { status: error.status }),
-            details,
+            message: "Upstream returned an invalid payload",
+            ...(status === undefined ? {} : { status }),
           },
         });
+      }
       case "network":
         return errorResult({
           error: {
             code: "upstream_error",
-            message: error.message,
-            details,
+            message: "Upstream request failed",
           },
         });
     }

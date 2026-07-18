@@ -142,10 +142,10 @@ describe("governed tool error envelopes", () => {
       });
       const parsed = errorEnvelope(result);
 
-      expect(parsed.error).toMatchObject({
+      expect(parsed.error).toEqual({
         code: "upstream_error",
+        message: "Upstream request failed",
         status: 502,
-        details: { method: "GET", path: "/api/tasks/FN-502" },
       });
       const rendered = JSON.stringify(result);
       expect(rendered).not.toContain(unsafeMarker);

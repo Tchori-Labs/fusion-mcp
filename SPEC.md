@@ -137,9 +137,10 @@ spec change and are delivered by their own board tasks.
 ### Tool contract compatibility
 
 [`tool-contract.json`](./tool-contract.json) is the generated, append-only
-history of compatibility baselines for implemented tool names and their MCP input
-JSON Schemas. CI compares the live in-memory MCP surface with every baseline in
-the current package major and rejects breaking drift. Tool names and top-level
+history of compatibility baselines for implemented tool names, their MCP input
+JSON Schemas, and the canonical error envelope and stable error-code meanings.
+CI compares the live in-memory MCP surface and error contract with every baseline
+in the current package major and rejects breaking drift. Tool names and top-level
 input properties must both appear in this catalogue; ungoverned additions always
 fail. Governed additive changes are permitted, while intentional breaks require
 a new major baseline. The versioning, deprecation, and
@@ -155,17 +156,19 @@ true`. The first text content item contains this canonical JSON envelope:
 {
   "error": {
     "code": "upstream_error",
-    "message": "Safe human-readable message",
-    "status": 503,
-    "details": { "method": "GET", "path": "/api/tasks/FN-1" }
+    "message": "Upstream request failed",
+    "status": 503
   }
 }
 ```
 
 `status` and `details` are optional. `status` appears only for
-`upstream_error` or `invalid_upstream_payload`, and only when an upstream HTTP
-status is known. `details` contains safe structured context and may gain
-additive fields over time. Successful tool result shapes are unaffected.
+`upstream_error` or `invalid_upstream_payload`, and only when a valid upstream
+HTTP status is known. `details` contains independently sanitized structured
+context (currently validation issue paths and schema messages) and may gain
+additive fields over time. Upstream exception messages, methods, and paths are
+not copied into the public result; each non-validation class uses a fixed safe
+message. Successful tool result shapes are unaffected.
 
 The exhaustive stable error codes are:
 
@@ -180,9 +183,12 @@ The exhaustive stable error codes are:
 
 All six codes and their meanings are part of a public, compatibility-sensitive contract.
 Removing or renaming a code, or changing its meaning, is a breaking change and
-must follow the versioning and deprecation policy. The token, upstream response
-bodies, raw received argument values, and stack traces never appear in any
-envelope field. In particular, `internal` always uses a fixed generic message.
+must follow the versioning and deprecation policy. The generated
+`tool-contract.json` records the envelope and code meanings, and same-major
+compatibility checks reject their removal or incompatible change. The token,
+upstream response bodies, raw received argument values, exception metadata, and
+stack traces never appear in any envelope field. In particular, `internal`
+always uses a fixed generic message.
 
 ## Transports
 
