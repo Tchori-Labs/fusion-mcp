@@ -37,6 +37,15 @@ function errorResult(envelope: ToolErrorEnvelope): CallToolResult {
   };
 }
 
+function upstreamStatus(status: number | undefined): number | undefined {
+  return Number.isInteger(status) &&
+    status !== undefined &&
+    status >= 100 &&
+    status <= 599
+    ? status
+    : undefined;
+}
+
 export function formatToolError(error: unknown): CallToolResult {
   if (error instanceof MissingTokenError) {
     return errorResult({
@@ -48,40 +57,39 @@ export function formatToolError(error: unknown): CallToolResult {
   }
 
   if (error instanceof FusionError) {
-    const details = { method: error.method, path: error.path };
     switch (error.kind) {
-      case "http":
+      case "http": {
+        const status = upstreamStatus(error.status);
         return errorResult({
           error: {
             code: "upstream_error",
-            message: error.message,
-            ...(error.status === undefined ? {} : { status: error.status }),
-            details,
+            message: "Upstream request failed",
+            ...(status === undefined ? {} : { status }),
           },
         });
+      }
       case "timeout":
         return errorResult({
           error: {
             code: "timeout",
-            message: error.message,
-            details,
+            message: "Upstream request timed out",
           },
         });
-      case "invalid_payload":
+      case "invalid_payload": {
+        const status = upstreamStatus(error.status);
         return errorResult({
           error: {
             code: "invalid_upstream_payload",
-            message: error.message,
-            ...(error.status === undefined ? {} : { status: error.status }),
-            details,
+            message: "Upstream returned an invalid payload",
+            ...(status === undefined ? {} : { status }),
           },
         });
+      }
       case "network":
         return errorResult({
           error: {
             code: "upstream_error",
-            message: error.message,
-            details,
+            message: "Upstream request failed",
           },
         });
     }
@@ -103,10 +111,8 @@ export function formatValidationError(
         path: (issue.path ?? []).flatMap((part) =>
           typeof part === "string" || typeof part === "number" ? [part] : [],
         ),
-        message:
-          typeof issue.message === "string"
-            ? issue.message
-            : "Invalid argument",
+        // Custom/refinement messages can interpolate received argument values.
+        message: "Invalid argument",
       })),
     },
   });

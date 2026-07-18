@@ -102,9 +102,26 @@ export class FusionClient {
         );
       }
 
+      let text: string;
+      try {
+        text = await response.text();
+      } catch {
+        await response.body?.cancel().catch(() => undefined);
+        if (timedOut || controller.signal.aborted) {
+          throw this.timeoutError(normalizedMethod, path);
+        }
+        throw new FusionError(
+          `Fusion request failed: ${normalizedMethod} ${path}`,
+          { method: normalizedMethod, path, kind: "network" },
+        );
+      }
+
+      if (timedOut || controller.signal.aborted) {
+        throw this.timeoutError(normalizedMethod, path);
+      }
+
       let data: T;
       try {
-        const text = await response.text();
         data = (text === "" ? undefined : JSON.parse(text)) as T;
       } catch {
         await response.body?.cancel().catch(() => undefined);

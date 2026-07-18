@@ -4,7 +4,10 @@ import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  type ToolCallback,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   StreamableHTTPServerTransport,
@@ -15,6 +18,16 @@ import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
 import { FusionClient, type FetchLike } from "./fusion-client.js";
+import {
+  formatValidationError,
+  withToolErrorEnvelope,
+} from "./tool-error.js";
+
+const emptyInputShape = {} satisfies z.ZodRawShape;
+
+const readProjectSettingsInputShape = {
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
 
 export interface BuildServerOptions {
   client?: FusionClient;
@@ -52,6 +65,91 @@ export function auditLog(tool: string, argsSummary = ""): void {
   );
 }
 
+type GovernedInputSchemas = Map<string, z.ZodType>;
+
+type ProtocolRequestHandler = (
+  request: unknown,
+  extra: unknown,
+) => unknown | Promise<unknown>;
+
+interface ProtocolRequestHandlerStore {
+  _requestHandlers: Map<string, ProtocolRequestHandler>;
+}
+
+function isToolCall(request: unknown): request is {
+  method: "tools/call";
+  params: { name: string; arguments?: unknown };
+} {
+  if (typeof request !== "object" || request === null) {
+    return false;
+  }
+  const { method, params } = request as { method?: unknown; params?: unknown };
+  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+    return false;
+  }
+  return typeof (params as { name?: unknown }).name === "string";
+}
+
+function normalizeInvalidToolCalls(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+): void {
+  const setRequestHandler = server.server.setRequestHandler.bind(server.server);
+  let installed = false;
+
+  server.server.setRequestHandler = (schema, handler) => {
+    setRequestHandler(schema, handler);
+
+    if (installed) {
+      return;
+    }
+
+    // The SDK's registered tools/call handler first parses the strict protocol
+    // request schema. Replace only the stored outer function so governed calls
+    // with null/array arguments can be normalized before that parse; all valid
+    // calls continue through the original SDK validation and result checks.
+    const requestHandlers = (
+      server.server as unknown as ProtocolRequestHandlerStore
+    )._requestHandlers;
+    const strictToolCallHandler = requestHandlers.get("tools/call");
+    if (strictToolCallHandler === undefined) {
+      return;
+    }
+
+    requestHandlers.set("tools/call", async (request, extra) => {
+      if (isToolCall(request)) {
+        const inputSchema = inputSchemas.get(request.params.name);
+        const rawArguments =
+          request.params.arguments === undefined
+            ? {}
+            : request.params.arguments;
+        const parsed = inputSchema?.safeParse(rawArguments);
+        if (parsed !== undefined && !parsed.success) {
+          auditLog(request.params.name, "validation=failed");
+          return formatValidationError(parsed.error.issues);
+        }
+      }
+      return await strictToolCallHandler(request, extra);
+    });
+    installed = true;
+  };
+}
+
+function registerGovernedTool<InputShape extends z.ZodRawShape>(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+  name: string,
+  config: { description: string; inputSchema: InputShape },
+  handler: ToolCallback<InputShape>,
+): void {
+  inputSchemas.set(name, z.object(config.inputSchema));
+  server.registerTool(
+    name,
+    config,
+    withToolErrorEnvelope(handler) as ToolCallback<InputShape>,
+  );
+}
+
 export function buildServer(
   config: Config,
   options: BuildServerOptions = {},
@@ -59,12 +157,16 @@ export function buildServer(
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
+  const governedInputSchemas: GovernedInputSchemas = new Map();
+  normalizeInvalidToolCalls(server, governedInputSchemas);
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_board_health",
     {
       description: "Check Fusion board health and available system information",
-      inputSchema: {},
+      inputSchema: emptyInputShape,
     },
     async () => {
       auditLog("get_board_health");
@@ -88,11 +190,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "list_projects",
     {
       description: "List configured projects",
-      inputSchema: {},
+      inputSchema: emptyInputShape,
     },
     async () => {
       auditLog("list_projects");
@@ -105,11 +209,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "read_project_settings",
     {
       description: "Read project or instance settings",
-      inputSchema: { projectId: z.string().min(1).optional() },
+      inputSchema: readProjectSettingsInputShape,
     },
     async ({ projectId }) => {
       const effectiveProjectId = projectId ?? config.defaultProjectId;
