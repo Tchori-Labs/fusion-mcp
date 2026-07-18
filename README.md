@@ -10,10 +10,12 @@ approve plans, change settings, delete/archive tasks, or restart the system.
 Writes are limited to task creation and communication. Every tool call is audited
 to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
 
-> Status: **the executable scaffold, `get_board_health`, `list_projects`, and
-> `read_project_settings` are implemented.** The remaining catalogue tools are
-> future FM-00x work in [`briefs/`](./briefs), delivered as separate
-> human-reviewed PRs.
+> Status: **the executable scaffold and all read tools — `get_board_health`,
+> `list_projects`, `read_project_settings`, `list_tasks`, `get_task`,
+> `get_task_logs`, and `get_task_workflow_results` — are implemented.** The
+> remaining catalogue tools are delivered as board tasks (the original write
+> set is briefed in [`briefs/`](./briefs)); each task's plan is human-approved
+> and the board integrates completed work into `develop`.
 
 ## Configuration
 
@@ -56,16 +58,28 @@ Register with Claude Code (stdio):
 
 ## Tools
 
-Implemented: `get_board_health` · `list_projects` · `read_project_settings`.
+Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
+`list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results`.
 
-Planned: `list_tasks` · `get_task` · `get_task_logs` ·
-`get_task_workflow_results` · `create_task` · `comment_task` · `steer_task` ·
-`pause_task` · `unpause_task`.
+Planned: `create_task` · `comment_task` · `steer_task` · `pause_task` ·
+`unpause_task`.
 
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
 `list_projects` are instance-scoped. Write tools are scoped to task
 creation/communication. Full parameter and endpoint mapping is in
 [`SPEC.md`](./SPEC.md#tool-catalogue).
+
+## Branching & releases
+
+- **`develop`** is the default branch and the board's integration branch:
+  completed board-task work (agent `fusion/*` branches) is squash-integrated
+  into `develop` by the board and pushed to origin. Human feature/fix PRs
+  also target `develop`.
+- **`main`** is the release branch. It only moves via a PR from `develop` (or a
+  `release/*` / `hotfix/*` branch); this is enforced by a repository ruleset
+  plus the `Release guard` workflow. Direct pushes, force pushes, and branch
+  deletion are blocked on `main`.
+- To cut a release, open a PR `develop` → `main` and merge it (merge commit).
 
 ## Development
 
@@ -75,14 +89,23 @@ Requires Node 22 (`.nvmrc`) and pnpm.
 pnpm install
 pnpm lint         # eslint (flat config)
 pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (no network — fetch is injected/mocked)
+pnpm test         # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
 pnpm build        # tsc → dist/
 pnpm dev          # tsx src/index.ts --stdio
 ```
 
-CI runs all of the above as the required **Build & Test** check. Contributor
-rules — including the cross-repo / no-merge protocol — are in
-[`AGENTS.md`](./AGENTS.md).
+When a governed tool or input schema changes, run `pnpm contract:generate`,
+review the `tool-contract.json` diff, and commit the generated file. Generation
+preserves prior same-major baselines and rejects breaking or ungoverned changes;
+do not edit or remove manifest history by hand. See
+[`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md) for the
+compatibility and deprecation policy.
+
+CI runs all of the above as the required **Build & Test** check. The mandatory
+suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
+`pnpm test` and may run only as opt-in live checks through a separate, explicit
+Vitest config that does not load the guard. Contributor rules — including the
+cross-repo / no-merge protocol — are in [`AGENTS.md`](./AGENTS.md).
 
 ## License
 

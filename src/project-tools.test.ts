@@ -77,6 +77,10 @@ describe("project read tools", () => {
 
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "list_tasks",
+        "get_task",
+        "get_task_logs",
+        "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
       ]);

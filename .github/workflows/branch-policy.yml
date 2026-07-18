@@ -1,0 +1,24 @@
+name: Branch policy
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  release-guard:
+    name: Release guard
+    runs-on: ubuntu-latest
+    env:
+      HEAD_REF: ${{ github.head_ref }}
+    steps:
+      - name: Only develop, release/* or hotfix/* may target main
+        run: |
+          case "$HEAD_REF" in
+            develop|release/*|hotfix/*)
+              echo "OK: '$HEAD_REF' is allowed to merge into main."
+              ;;
+            *)
+              echo "::error::PRs into main are reserved for releases. Target 'develop' instead, or use a 'release/*' or 'hotfix/*' branch."
+              exit 1
+              ;;
+          esac
