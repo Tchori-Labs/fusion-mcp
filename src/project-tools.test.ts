@@ -221,7 +221,12 @@ describe("project read tools", () => {
 
       expect(result.isError).toBe(true);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(stderr).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledOnce();
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /tool=read_project_settings validation=failed\n$/,
+        ),
+      );
     } finally {
       await harness.close();
     }
