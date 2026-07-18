@@ -4,7 +4,8 @@
 
 `fusion-mcp` is an external [Model Context Protocol](https://modelcontextprotocol.io)
 server that wraps the REST API of **Fusion** — a self-hosted, AI-agent task-board
-product (agents pick up tasks, run, and open PRs). The MCP server lets an MCP
+product that cuts task worktrees from `develop` and automatically
+squash-integrates completed work back into `develop`. The MCP server lets an MCP
 client (Claude Code, Claude Desktop, or an automation) act as the *operational
 brain* of a Fusion board: watch columns, triage, create and prioritise tasks,
 comment on and steer running agents, pause/unpause work, and read logs.
@@ -19,10 +20,12 @@ These are the reason the project exists in this shape. They are enforced by
 *what tools exist*, not by runtime policy checks:
 
 1. **No merge / approve / publish.** There is no tool to merge a PR, approve a
-   plan, enable auto-merge, or otherwise publish work outside the board.
-   Merging GitHub PRs is a human action. The board's automatic squash
-   integration of completed task work into `develop` is board machinery
-   outside this server — no MCP client gains any merge capability from it.
+   plan, enable auto-merge, or otherwise publish work outside the board. Fusion
+   automatically squash-integrates completed task work into `develop`; that is
+   internal board execution, and this server exposes no tool or workaround to
+   trigger, approve, or publish it. Releasing `develop` to the protected `main`
+   branch requires a human-reviewed PR and version tag; there is no MCP tool for
+   it. Merging release PRs, approving plans, and publishing remain human actions.
 2. **No settings mutation.** Project/instance settings are **read-only** through
    this server. There is no tool to change settings.
 3. **No destructive task ops.** No delete, no archive, no bulk mutation.

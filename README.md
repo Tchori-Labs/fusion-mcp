@@ -5,17 +5,19 @@ agent-board REST API, so an MCP client (Claude Code, Claude Desktop, automation)
 can run the board: watch it, triage, create tasks, comment on and steer running
 agents, and read logs.
 
-It is **governed by design**: there are deliberately **no** tools to merge PRs,
-approve plans, change settings, delete/archive tasks, or restart the system.
-Writes are limited to task creation and communication. Every tool call is audited
-to stderr. See [`SPEC.md`](./SPEC.md) for the full contract.
+It is **governed by design**: there are deliberately **no** tools or workarounds
+to merge PRs, approve plans, publish work, change settings, delete/archive tasks,
+or restart the system. Fusion's automatic squash integration into `develop` is
+internal board execution, not an MCP merge capability; reviewed `develop` →
+`main` release PRs remain human-only. Writes are limited to task creation and
+communication. Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md)
+for the full contract.
 
 > Status: **the executable scaffold and all read tools — `get_board_health`,
 > `list_projects`, `read_project_settings`, `list_tasks`, `get_task`,
-> `get_task_logs`, and `get_task_workflow_results` — are implemented.** The
-> remaining catalogue tools are delivered as board tasks (the original write
-> set is briefed in [`briefs/`](./briefs)); each task's plan is human-approved
-> and the board integrates completed work into `develop`.
+> `get_task_logs`, and `get_task_workflow_results` — are implemented.** Future
+> FM-00x work is tracked in [`briefs/`](./briefs) and integrated into `develop`
+> through Fusion's automatic squash integration.
 
 ## Configuration
 
@@ -71,15 +73,13 @@ creation/communication. Full parameter and endpoint mapping is in
 
 ## Branching & releases
 
-- **`develop`** is the default branch and the board's integration branch:
-  completed board-task work (agent `fusion/*` branches) is squash-integrated
-  into `develop` by the board and pushed to origin. Human feature/fix PRs
-  also target `develop`.
-- **`main`** is the release branch. It only moves via a PR from `develop` (or a
-  `release/*` / `hotfix/*` branch); this is enforced by a repository ruleset
-  plus the `Release guard` workflow. Direct pushes, force pushes, and branch
-  deletion are blocked on `main`.
-- To cut a release, open a PR `develop` → `main` and merge it (merge commit).
+- **`develop`** is the default integration branch. Fusion cuts task worktrees
+  from `develop` and automatically squash-integrates completed work back into
+  it; agents do not open PRs or choose the target branch.
+- **`main`** is the protected, release-only line. It changes solely through a
+  human-reviewed `develop` → `main` PR plus a version tag at release time.
+- Releases are human-only: a human opens, reviews, and merges the release PR,
+  then creates the version tag. The MCP server cannot perform these actions.
 
 ## Development
 
