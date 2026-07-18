@@ -209,6 +209,27 @@ describe("diffToolContract compatible additions", () => {
     );
   });
 
+  it("accepts an exclusive lower bound becoming inclusive", () => {
+    const baseline = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      settingsSchema({ type: "number", exclusiveMinimum: 0 }),
+    );
+    const candidate = replaceSchema(
+      baseline,
+      "read_project_settings",
+      settingsSchema({ type: "number", minimum: 0 }),
+    );
+
+    const result = diffToolContract(baseline, candidate);
+
+    expect(result.compatible).toBe(true);
+    expect(result.breaking).toEqual([]);
+    expect(result.additive).toContainEqual(
+      expect.objectContaining({ kind: "constraint-loosened" }),
+    );
+  });
+
   it("accepts a new tool from the SPEC catalogue", () => {
     const candidate: ToolContractManifest = {
       ...committedManifest,
@@ -341,6 +362,21 @@ describe("diffToolContract breaking changes", () => {
       baseline,
       "read_project_settings",
       settingsSchema({ type: "number", minimum: 2 }),
+    );
+
+    expectBreaking(baseline, candidate, "constraint-tightened");
+  });
+
+  it("rejects an inclusive lower bound becoming exclusive", () => {
+    const baseline = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      settingsSchema({ type: "number", minimum: 0 }),
+    );
+    const candidate = replaceSchema(
+      baseline,
+      "read_project_settings",
+      settingsSchema({ type: "number", exclusiveMinimum: 0 }),
     );
 
     expectBreaking(baseline, candidate, "constraint-tightened");

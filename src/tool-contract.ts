@@ -337,8 +337,8 @@ function change(
   return { kind, tool, path, message };
 }
 
-const LOWER_BOUND_KEYS = ["minimum", "minLength", "minItems"] as const;
-const UPPER_BOUND_KEYS = ["maximum", "maxLength", "maxItems"] as const;
+const LOWER_BOUND_KEYS = ["minLength", "minItems"] as const;
+const UPPER_BOUND_KEYS = ["maxLength", "maxItems"] as const;
 const HANDLED_SCHEMA_KEYS = new Set([
   "type",
   "format",
@@ -347,7 +347,9 @@ const HANDLED_SCHEMA_KEYS = new Set([
   "enum",
   "pattern",
   "minimum",
+  "exclusiveMinimum",
   "maximum",
+  "exclusiveMaximum",
   "minLength",
   "maxLength",
   "minItems",
@@ -391,6 +393,101 @@ function compareBound(
       tool,
       `${path}.${key}`,
       `${key} changed from ${String(before)} to ${String(after)}`,
+    ),
+  );
+}
+
+interface NumericBound {
+  value: number;
+  exclusive: boolean;
+}
+
+function numericBound(
+  schema: Record<string, unknown>,
+  direction: "lower" | "upper",
+): NumericBound | undefined | null {
+  const inclusiveKey = direction === "lower" ? "minimum" : "maximum";
+  const exclusiveKey =
+    direction === "lower" ? "exclusiveMinimum" : "exclusiveMaximum";
+  const inclusive = schema[inclusiveKey];
+  const exclusive = schema[exclusiveKey];
+  if (
+    (inclusive !== undefined &&
+      (typeof inclusive !== "number" || !Number.isFinite(inclusive))) ||
+    (exclusive !== undefined &&
+      (typeof exclusive !== "number" || !Number.isFinite(exclusive)))
+  ) {
+    return null;
+  }
+  if (inclusive === undefined && exclusive === undefined) return undefined;
+  if (inclusive === undefined) {
+    return { value: exclusive as number, exclusive: true };
+  }
+  if (exclusive === undefined) {
+    return { value: inclusive, exclusive: false };
+  }
+
+  const exclusiveIsStronger =
+    direction === "lower" ? exclusive >= inclusive : exclusive <= inclusive;
+  return exclusiveIsStronger
+    ? { value: exclusive, exclusive: true }
+    : { value: inclusive, exclusive: false };
+}
+
+function compareNumericBound(
+  direction: "lower" | "upper",
+  baseline: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  tool: string,
+  path: string,
+  result: ToolContractDiff,
+): void {
+  const before = numericBound(baseline, direction);
+  const after = numericBound(candidate, direction);
+  const keys =
+    direction === "lower"
+      ? ["minimum", "exclusiveMinimum"]
+      : ["maximum", "exclusiveMaximum"];
+
+  if (before === null || after === null) {
+    const unchanged = keys.every(
+      (key) => stableValue(baseline[key]) === stableValue(candidate[key]),
+    );
+    if (!unchanged) {
+      result.breaking.push(
+        change(
+          "schema-changed",
+          tool,
+          `${path}.${keys.join("/")}`,
+          `${direction} numeric bound changed`,
+        ),
+      );
+    }
+    return;
+  }
+  if (before === undefined && after === undefined) return;
+  if (
+    before !== undefined &&
+    after !== undefined &&
+    before.value === after.value &&
+    before.exclusive === after.exclusive
+  ) {
+    return;
+  }
+
+  const isTighter =
+    after !== undefined &&
+    (before === undefined ||
+      (direction === "lower"
+        ? after.value > before.value
+        : after.value < before.value) ||
+      (after.value === before.value && after.exclusive && !before.exclusive));
+  (isTighter ? result.breaking : result.additive).push(
+    change(
+      isTighter ? "constraint-tightened" : "constraint-loosened",
+      tool,
+      `${path}.${keys.join("/")}`,
+      `${direction} numeric bound changed`,
     ),
   );
 }
@@ -568,6 +665,8 @@ function compareSchema(
     }
   }
 
+  compareNumericBound("lower", baseline, candidate, tool, path, result);
+  compareNumericBound("upper", baseline, candidate, tool, path, result);
   for (const key of LOWER_BOUND_KEYS) {
     compareBound(key, "lower", baseline, candidate, tool, path, result);
   }
