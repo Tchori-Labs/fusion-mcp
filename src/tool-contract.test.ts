@@ -56,6 +56,13 @@ function settingsSchema(propertySchema: JsonSchema, required = false): JsonSchem
   };
 }
 
+function requiredErrorContract(manifest: ToolContractManifest) {
+  if (manifest.errorContract === undefined) {
+    throw new Error("manifest has no canonical error contract");
+  }
+  return manifest.errorContract;
+}
+
 function expectBreaking(
   baseline: ToolContractManifest,
   candidate: ToolContractManifest,
@@ -202,6 +209,27 @@ describe("diffToolContract compatible additions", () => {
     );
   });
 
+  it("accepts an exclusive lower bound becoming inclusive", () => {
+    const baseline = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      settingsSchema({ type: "number", exclusiveMinimum: 0 }),
+    );
+    const candidate = replaceSchema(
+      baseline,
+      "read_project_settings",
+      settingsSchema({ type: "number", minimum: 0 }),
+    );
+
+    const result = diffToolContract(baseline, candidate);
+
+    expect(result.compatible).toBe(true);
+    expect(result.breaking).toEqual([]);
+    expect(result.additive).toContainEqual(
+      expect.objectContaining({ kind: "constraint-loosened" }),
+    );
+  });
+
   it("accepts a new tool from the SPEC catalogue", () => {
     const candidate: ToolContractManifest = {
       ...committedManifest,
@@ -228,6 +256,46 @@ describe("diffToolContract compatible additions", () => {
 });
 
 describe("diffToolContract breaking changes", () => {
+  it("rejects a removed stable error code", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.filter(({ code }) => code !== "internal"),
+      },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-code-removed");
+  });
+
+  it("rejects a changed stable error-code meaning", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.map((entry) =>
+          entry.code === "timeout"
+            ? { ...entry, meaning: "some other failure" }
+            : entry,
+        ),
+      },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-code-meaning-changed");
+  });
+
+  it("rejects an incompatible canonical envelope change", () => {
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: { ...errorContract, isError: false },
+    };
+
+    expectBreaking(committedManifest, candidate, "error-contract-changed");
+  });
+
   it("rejects a removed tool", () => {
     const candidate = {
       ...committedManifest,
@@ -294,6 +362,21 @@ describe("diffToolContract breaking changes", () => {
       baseline,
       "read_project_settings",
       settingsSchema({ type: "number", minimum: 2 }),
+    );
+
+    expectBreaking(baseline, candidate, "constraint-tightened");
+  });
+
+  it("rejects an inclusive lower bound becoming exclusive", () => {
+    const baseline = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      settingsSchema({ type: "number", minimum: 0 }),
+    );
+    const candidate = replaceSchema(
+      baseline,
+      "read_project_settings",
+      settingsSchema({ type: "number", exclusiveMinimum: 0 }),
     );
 
     expectBreaking(baseline, candidate, "constraint-tightened");
@@ -399,6 +482,45 @@ describe("published baseline history", () => {
       tools: committedManifest.tools.filter(
         ({ name }) => name !== "read_project_settings",
       ),
+    };
+
+    expect(() =>
+      updateToolContractArtifact(artifact, candidate, currentPackageMajor),
+    ).toThrow(/Bump the package major/u);
+  });
+
+  it("preserves and rejects incompatible manifest-version history", () => {
+    const artifact = updateToolContractArtifact(
+      undefined,
+      committedManifest,
+      currentPackageMajor,
+    );
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      manifestVersion: committedManifest.manifestVersion + 1,
+    };
+
+    expect(artifact.baselines[0]?.manifestVersion).toBe(
+      committedManifest.manifestVersion,
+    );
+    expect(() =>
+      updateToolContractArtifact(artifact, candidate, currentPackageMajor),
+    ).toThrow(/manifest-version-changed/u);
+  });
+
+  it("refuses to overwrite a same-major error contract baseline", () => {
+    const artifact = updateToolContractArtifact(
+      undefined,
+      committedManifest,
+      currentPackageMajor,
+    );
+    const errorContract = requiredErrorContract(committedManifest);
+    const candidate: ToolContractManifest = {
+      ...committedManifest,
+      errorContract: {
+        ...errorContract,
+        codes: errorContract.codes.filter(({ code }) => code !== "timeout"),
+      },
     };
 
     expect(() =>

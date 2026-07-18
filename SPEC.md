@@ -140,14 +140,61 @@ spec change and are delivered by their own board tasks.
 ### Tool contract compatibility
 
 [`tool-contract.json`](./tool-contract.json) is the generated, append-only
-history of compatibility baselines for implemented tool names and their MCP input
-JSON Schemas. CI compares the live in-memory MCP surface with every baseline in
-the current package major and rejects breaking drift. Tool names and top-level
+history of compatibility baselines for implemented tool names, their MCP input
+JSON Schemas, and the canonical error envelope and stable error-code meanings.
+CI compares the live in-memory MCP surface and error contract with every baseline
+in the current package major and rejects breaking drift. Tool names and top-level
 input properties must both appear in this catalogue; ungoverned additions always
 fail. Governed additive changes are permitted, while intentional breaks require
 a new major baseline. The versioning, deprecation, and
 regenerate-don't-hand-edit policy is documented in
 [`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md).
+
+## Error contract
+
+Every governed tool failure is returned as an MCP tool result with `isError:
+true`. The first text content item contains this canonical JSON envelope:
+
+```json
+{
+  "error": {
+    "code": "upstream_error",
+    "message": "Upstream request failed",
+    "status": 503
+  }
+}
+```
+
+`status` and `details` are optional. `status` appears only for
+`upstream_error` or `invalid_upstream_payload`, and only when a valid upstream
+HTTP status is known. `details` contains independently sanitized structured
+context (currently validation issue paths and fixed diagnostics) and may gain
+additive fields over time. Validation paths expose only field names derived from
+the registered input schema; unknown string segments and all numeric segments
+are redacted. Custom schema/refinement paths and messages are untrusted and are
+never copied verbatim into the envelope. Upstream exception messages, methods,
+and paths are not copied into the public result; each non-validation class uses
+a fixed safe message. Successful tool result shapes are unaffected.
+
+The exhaustive stable error codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `validation` | Tool arguments did not satisfy the tool's input schema. |
+| `missing_token` | An authenticated operation was called without a configured token. |
+| `upstream_error` | Fusion returned a non-success status or the request failed at the transport layer. |
+| `timeout` | The request exceeded the configured upstream timeout. |
+| `invalid_upstream_payload` | Fusion returned a success response whose payload could not be safely decoded or validated. |
+| `internal` | An unexpected internal failure occurred; its message is deliberately generic. |
+
+All six codes and their meanings are part of a public, compatibility-sensitive
+contract. Removing or renaming a code, or changing its meaning, is a breaking
+change and must follow the versioning and deprecation policy. The generated
+`tool-contract.json` records the envelope and code meanings, and same-major
+compatibility checks reject their removal or incompatible change. The token,
+upstream response bodies, raw received argument values, exception metadata, and
+stack traces never appear in any envelope field. In particular, `internal`
+always uses a fixed generic message.
 
 ## Transports
 

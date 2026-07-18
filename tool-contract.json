@@ -156,6 +156,176 @@
           }
         }
       ]
+    },
+    {
+      "packageMajor": 0,
+      "manifestVersion": 1,
+      "errorContract": {
+        "codes": [
+          {
+            "code": "validation",
+            "meaning": "tool arguments failed validation"
+          },
+          {
+            "code": "missing_token",
+            "meaning": "authentication token is not configured"
+          },
+          {
+            "code": "upstream_error",
+            "meaning": "upstream HTTP or transport request failed"
+          },
+          {
+            "code": "timeout",
+            "meaning": "upstream request timed out"
+          },
+          {
+            "code": "invalid_upstream_payload",
+            "meaning": "upstream success payload could not be decoded or validated"
+          },
+          {
+            "code": "internal",
+            "meaning": "unexpected internal failure"
+          }
+        ],
+        "contentType": "text",
+        "detailsExtensible": true,
+        "envelopeVersion": 1,
+        "isError": true,
+        "optionalFields": [
+          "error.status",
+          "error.details"
+        ],
+        "requiredFields": [
+          "error",
+          "error.code",
+          "error.message"
+        ],
+        "statusCodes": [
+          "upstream_error",
+          "invalid_upstream_payload"
+        ],
+        "textEncoding": "json"
+      },
+      "tools": [
+        {
+          "name": "get_board_health",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_task",
+          "inputSchema": {
+            "properties": {
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_task_logs",
+          "inputSchema": {
+            "properties": {
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "limit": {
+                "default": 50,
+                "exclusiveMinimum": 0,
+                "maximum": 200,
+                "type": "integer"
+              },
+              "offset": {
+                "default": 0,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_task_workflow_results",
+          "inputSchema": {
+            "properties": {
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "list_projects",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "list_tasks",
+          "inputSchema": {
+            "properties": {
+              "column": {
+                "type": "string"
+              },
+              "includeArchived": {
+                "type": "boolean"
+              },
+              "limit": {
+                "default": 50,
+                "exclusiveMinimum": 0,
+                "maximum": 200,
+                "type": "integer"
+              },
+              "offset": {
+                "default": 0,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "q": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "name": "read_project_settings",
+          "inputSchema": {
+            "properties": {
+              "projectId": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
     }
   ]
 }

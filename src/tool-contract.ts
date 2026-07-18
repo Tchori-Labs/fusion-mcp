@@ -4,6 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { parseConfig, type Config } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
+import { TOOL_ERROR_CONTRACT } from "./tool-error.js";
 
 export const TOOL_CONTRACT_MANIFEST_VERSION = 1 as const;
 export const TOOL_CONTRACT_ARTIFACT_VERSION = 1 as const;
@@ -58,8 +59,23 @@ export interface ToolContractEntry {
   inputSchema: JsonSchema;
 }
 
+export interface ToolErrorContractManifest {
+  envelopeVersion: number;
+  isError: boolean;
+  contentType: string;
+  textEncoding: string;
+  requiredFields: readonly string[];
+  optionalFields: readonly string[];
+  codes: readonly { code: string; meaning: string }[];
+  statusCodes: readonly string[];
+  detailsExtensible: boolean;
+}
+
 export interface ToolContractManifest {
-  manifestVersion: typeof TOOL_CONTRACT_MANIFEST_VERSION;
+  // Baseline history may contain older manifest formats. Keep the stored value
+  // instead of typing every historical entry as the currently generated one.
+  manifestVersion: number;
+  errorContract?: ToolErrorContractManifest;
   tools: readonly ToolContractEntry[];
 }
 
@@ -74,6 +90,12 @@ export interface ToolContractArtifact {
 
 export type ContractChangeKind =
   | "manifest-version-changed"
+  | "error-contract-added"
+  | "error-contract-removed"
+  | "error-contract-changed"
+  | "error-code-added"
+  | "error-code-removed"
+  | "error-code-meaning-changed"
   | "tool-removed"
   | "tool-added"
   | "ungoverned-tool"
@@ -123,6 +145,7 @@ export async function generateToolManifest(
 
     return {
       manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+      errorContract: TOOL_ERROR_CONTRACT,
       tools: tools.map(({ name, inputSchema }) => ({ name, inputSchema })),
     };
   } finally {
@@ -151,7 +174,15 @@ export function normalizeManifest(
   manifest: ToolContractManifest,
 ): ToolContractManifest {
   return {
-    manifestVersion: TOOL_CONTRACT_MANIFEST_VERSION,
+    // Normalization must not rewrite compatibility-significant version history.
+    manifestVersion: manifest.manifestVersion,
+    ...(manifest.errorContract === undefined
+      ? {}
+      : {
+          errorContract: normalizeValue(
+            manifest.errorContract,
+          ) as ToolErrorContractManifest,
+        }),
     tools: [...manifest.tools]
       .map((tool) => ({
         name: tool.name,
@@ -311,8 +342,8 @@ function change(
   return { kind, tool, path, message };
 }
 
-const LOWER_BOUND_KEYS = ["minimum", "minLength", "minItems"] as const;
-const UPPER_BOUND_KEYS = ["maximum", "maxLength", "maxItems"] as const;
+const LOWER_BOUND_KEYS = ["minLength", "minItems"] as const;
+const UPPER_BOUND_KEYS = ["maxLength", "maxItems"] as const;
 const HANDLED_SCHEMA_KEYS = new Set([
   "type",
   "format",
@@ -321,7 +352,9 @@ const HANDLED_SCHEMA_KEYS = new Set([
   "enum",
   "pattern",
   "minimum",
+  "exclusiveMinimum",
   "maximum",
+  "exclusiveMaximum",
   "minLength",
   "maxLength",
   "minItems",
@@ -365,6 +398,101 @@ function compareBound(
       tool,
       `${path}.${key}`,
       `${key} changed from ${String(before)} to ${String(after)}`,
+    ),
+  );
+}
+
+interface NumericBound {
+  value: number;
+  exclusive: boolean;
+}
+
+function numericBound(
+  schema: Record<string, unknown>,
+  direction: "lower" | "upper",
+): NumericBound | undefined | null {
+  const inclusiveKey = direction === "lower" ? "minimum" : "maximum";
+  const exclusiveKey =
+    direction === "lower" ? "exclusiveMinimum" : "exclusiveMaximum";
+  const inclusive = schema[inclusiveKey];
+  const exclusive = schema[exclusiveKey];
+  if (
+    (inclusive !== undefined &&
+      (typeof inclusive !== "number" || !Number.isFinite(inclusive))) ||
+    (exclusive !== undefined &&
+      (typeof exclusive !== "number" || !Number.isFinite(exclusive)))
+  ) {
+    return null;
+  }
+  if (inclusive === undefined && exclusive === undefined) return undefined;
+  if (inclusive === undefined) {
+    return { value: exclusive as number, exclusive: true };
+  }
+  if (exclusive === undefined) {
+    return { value: inclusive, exclusive: false };
+  }
+
+  const exclusiveIsStronger =
+    direction === "lower" ? exclusive >= inclusive : exclusive <= inclusive;
+  return exclusiveIsStronger
+    ? { value: exclusive, exclusive: true }
+    : { value: inclusive, exclusive: false };
+}
+
+function compareNumericBound(
+  direction: "lower" | "upper",
+  baseline: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  tool: string,
+  path: string,
+  result: ToolContractDiff,
+): void {
+  const before = numericBound(baseline, direction);
+  const after = numericBound(candidate, direction);
+  const keys =
+    direction === "lower"
+      ? ["minimum", "exclusiveMinimum"]
+      : ["maximum", "exclusiveMaximum"];
+
+  if (before === null || after === null) {
+    const unchanged = keys.every(
+      (key) => stableValue(baseline[key]) === stableValue(candidate[key]),
+    );
+    if (!unchanged) {
+      result.breaking.push(
+        change(
+          "schema-changed",
+          tool,
+          `${path}.${keys.join("/")}`,
+          `${direction} numeric bound changed`,
+        ),
+      );
+    }
+    return;
+  }
+  if (before === undefined && after === undefined) return;
+  if (
+    before !== undefined &&
+    after !== undefined &&
+    before.value === after.value &&
+    before.exclusive === after.exclusive
+  ) {
+    return;
+  }
+
+  const isTighter =
+    after !== undefined &&
+    (before === undefined ||
+      (direction === "lower"
+        ? after.value > before.value
+        : after.value < before.value) ||
+      (after.value === before.value && after.exclusive && !before.exclusive));
+  (isTighter ? result.breaking : result.additive).push(
+    change(
+      isTighter ? "constraint-tightened" : "constraint-loosened",
+      tool,
+      `${path}.${keys.join("/")}`,
+      `${direction} numeric bound changed`,
     ),
   );
 }
@@ -542,6 +670,8 @@ function compareSchema(
     }
   }
 
+  compareNumericBound("lower", baseline, candidate, tool, path, result);
+  compareNumericBound("upper", baseline, candidate, tool, path, result);
   for (const key of LOWER_BOUND_KEYS) {
     compareBound(key, "lower", baseline, candidate, tool, path, result);
   }
@@ -601,6 +731,106 @@ function compareSchema(
   }
 }
 
+function compareErrorContract(
+  baseline: ToolErrorContractManifest | undefined,
+  candidate: ToolErrorContractManifest | undefined,
+  result: ToolContractDiff,
+): void {
+  if (baseline === undefined) {
+    if (candidate !== undefined) {
+      result.additive.push(
+        change(
+          "error-contract-added",
+          "*",
+          "errorContract",
+          "canonical tool error contract was added",
+        ),
+      );
+    }
+    return;
+  }
+  if (candidate === undefined) {
+    result.breaking.push(
+      change(
+        "error-contract-removed",
+        "*",
+        "errorContract",
+        "canonical tool error contract was removed",
+      ),
+    );
+    return;
+  }
+
+  const { codes: baselineCodes, ...baselineEnvelope } = baseline;
+  const { codes: candidateCodes, ...candidateEnvelope } = candidate;
+  if (stableValue(baselineEnvelope) !== stableValue(candidateEnvelope)) {
+    result.breaking.push(
+      change(
+        "error-contract-changed",
+        "*",
+        "errorContract",
+        "canonical tool error envelope changed",
+      ),
+    );
+  }
+
+  const baselineByCode = new Map(
+    baselineCodes.map(({ code, meaning }) => [code, meaning]),
+  );
+  const candidateByCode = new Map(
+    candidateCodes.map(({ code, meaning }) => [code, meaning]),
+  );
+  if (
+    baselineByCode.size !== baselineCodes.length ||
+    candidateByCode.size !== candidateCodes.length
+  ) {
+    result.breaking.push(
+      change(
+        "error-contract-changed",
+        "*",
+        "errorContract.codes",
+        "error code entries must be unique",
+      ),
+    );
+  }
+
+  for (const [code, meaning] of baselineByCode) {
+    const candidateMeaning = candidateByCode.get(code);
+    if (candidateMeaning === undefined) {
+      result.breaking.push(
+        change(
+          "error-code-removed",
+          "*",
+          `errorContract.codes.${code}`,
+          `error code ${code} was removed or renamed`,
+        ),
+      );
+    } else if (candidateMeaning !== meaning) {
+      result.breaking.push(
+        change(
+          "error-code-meaning-changed",
+          "*",
+          `errorContract.codes.${code}.meaning`,
+          `meaning of error code ${code} changed`,
+        ),
+      );
+    }
+  }
+
+  for (const [code] of candidateByCode) {
+    if (!baselineByCode.has(code)) {
+      result.additive.push(
+        change(
+          "error-code-added",
+          "*",
+          `errorContract.codes.${code}`,
+          `error code ${code} was added`,
+        ),
+      );
+    }
+  }
+}
+
 export function diffToolContract(
   baseline: ToolContractManifest,
   candidate: ToolContractManifest,
@@ -624,6 +854,8 @@ export function diffToolContract(
       ),
     );
   }
+
+  compareErrorContract(baseline.errorContract, candidate.errorContract, result);
 
   for (const tool of candidate.tools) {
     if (!governedNames.has(tool.name)) {
