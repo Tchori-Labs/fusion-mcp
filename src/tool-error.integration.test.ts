@@ -1,6 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { parseConfig, type Config } from "./config.js";
 import {
@@ -9,7 +11,10 @@ import {
   type FusionResponse,
 } from "./fusion-client.js";
 import { buildServer, type BuildServerOptions } from "./index.js";
-import type { ToolErrorEnvelope } from "./tool-error.js";
+import {
+  type ToolErrorEnvelope,
+  withToolErrorEnvelope,
+} from "./tool-error.js";
 
 const tokenMarker = "distinctive-fake-token-marker";
 const unsafeMarker = "distinctive-body-or-stack-marker";
@@ -21,6 +26,39 @@ async function createHarness(
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const server = buildServer(config, options);
   const client = new Client({ name: "tool-error-test", version: "1.0.0" });
+
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  return {
+    client,
+    async close() {
+      await client.close();
+      await server.close();
+    },
+  };
+}
+
+async function createWriteStyleHarness(
+  writeOperation: (text: string) => Promise<void>,
+) {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = new McpServer({
+    name: "tool-error-write-style-test",
+    version: "1.0.0",
+  });
+  server.registerTool(
+    "representative_write",
+    {
+      description: "Exercise the shared envelope around a write-style handler",
+      inputSchema: { text: z.string() },
+    },
+    withToolErrorEnvelope(async ({ text }: { text: string }) => {
+      await writeOperation(text);
+      return { content: [{ type: "text" as const, text: "{\"ok\":true}" }] };
+    }),
+  );
+  const client = new Client({ name: "tool-error-write-test", version: "1.0.0" });
 
   await server.connect(serverTransport);
   await client.connect(clientTransport);
@@ -76,8 +114,6 @@ afterEach(() => {
 });
 
 describe("governed tool error envelopes", () => {
-  // Every registration uses the same wrapper/registry helper, so future write
-  // handlers receive the same contract without handler-specific error code.
   it("normalizes input validation before dispatch without echoing values", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(
@@ -95,11 +131,39 @@ describe("governed tool error envelopes", () => {
       expect(parsed.error.code).toBe("validation");
       expect(parsed.error).not.toHaveProperty("status");
       expect(parsed.error.details).toEqual([
-        { path: ["id"], message: "Invalid input: expected string, received object" },
+        { path: ["id"], message: "Invalid argument" },
       ]);
       expect(JSON.stringify(result)).not.toContain(unsafeMarker);
       expect(JSON.stringify(result)).not.toContain(tokenMarker);
       expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("redacts unexpected failures from a representative write-style handler", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network access is forbidden in this test"));
+    const writeOperation = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error(`${unsafeMarker} ${tokenMarker}`));
+    const harness = await createWriteStyleHarness(writeOperation);
+
+    try {
+      const result = await harness.client.callTool({
+        name: "representative_write",
+        arguments: { text: unsafeMarker },
+      });
+
+      expect(errorEnvelope(result)).toEqual({
+        error: { code: "internal", message: "Internal error" },
+      });
+      expect(writeOperation).toHaveBeenCalledWith(unsafeMarker);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(result);
+      expect(rendered).not.toContain(unsafeMarker);
+      expect(rendered).not.toContain(tokenMarker);
     } finally {
       await harness.close();
     }

@@ -165,8 +165,9 @@ true`. The first text content item contains this canonical JSON envelope:
 `status` and `details` are optional. `status` appears only for
 `upstream_error` or `invalid_upstream_payload`, and only when a valid upstream
 HTTP status is known. `details` contains independently sanitized structured
-context (currently validation issue paths and schema messages) and may gain
-additive fields over time. Upstream exception messages, methods, and paths are
+context (currently validation issue paths and fixed diagnostics) and may gain
+additive fields over time. Custom schema/refinement messages are untrusted and
+are never copied into the envelope. Upstream exception messages, methods, and paths are
 not copied into the public result; each non-validation class uses a fixed safe
 message. Successful tool result shapes are unaffected.
 

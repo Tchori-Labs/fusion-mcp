@@ -146,12 +146,12 @@ describe("tool error contract", () => {
     expect(rendered).not.toContain(stackMarker);
   });
 
-  it("sanitizes validation issues to paths and messages", () => {
+  it("sanitizes validation issues without trusting custom messages", () => {
     const result = formatValidationError([
-      { path: ["id"], message: "id is required" },
+      { path: ["id"], message: `id contained ${secretMarker}` },
       {
         path: ["nested", Symbol(secretMarker), 1],
-        message: undefined,
+        message: bodyMarker,
       },
     ]);
 
@@ -160,12 +160,14 @@ describe("tool error contract", () => {
         code: "validation",
         message: "Invalid tool arguments",
         details: [
-          { path: ["id"], message: "id is required" },
+          { path: ["id"], message: "Invalid argument" },
           { path: ["nested", 1], message: "Invalid argument" },
         ],
       },
     });
-    expect(JSON.stringify(result)).not.toContain(secretMarker);
+    const rendered = JSON.stringify(result);
+    expect(rendered).not.toContain(secretMarker);
+    expect(rendered).not.toContain(bodyMarker);
   });
 
   it("leaves successful results unchanged and formats thrown failures", async () => {

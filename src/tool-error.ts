@@ -142,10 +142,9 @@ export function formatValidationError(
         path: (issue.path ?? []).flatMap((part) =>
           typeof part === "string" || typeof part === "number" ? [part] : [],
         ),
-        message:
-          typeof issue.message === "string"
-            ? issue.message
-            : "Invalid argument",
+        // Zod permits custom/refinement messages, which may contain received
+        // argument values. Never serialize those untrusted messages.
+        message: "Invalid argument",
       })),
     },
   });
