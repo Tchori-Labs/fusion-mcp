@@ -94,6 +94,7 @@ function httpFactoryHarness() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("mode selection", () => {
@@ -179,6 +180,33 @@ describe("main", () => {
       "fusion-mcp: unknown argument: --unknown\n",
     );
     expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an incomplete Access pair as a clear startup error", async () => {
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_ID", "access-client-marker");
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_SECRET", "");
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+
+    await expect(runCli([], { stderr })).resolves.toBe(1);
+
+    expect(stderr.write).toHaveBeenCalledWith(
+      "fusion-mcp: FUSION_CF_ACCESS_CLIENT_SECRET must be set when FUSION_CF_ACCESS_CLIENT_ID is set\n",
+    );
+  });
+
+  it("never includes an Access secret in startup error output", async () => {
+    const marker = "distinctive-access-secret-marker";
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_ID", "");
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_SECRET", marker);
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+
+    await expect(runCli([], { stderr })).resolves.toBe(1);
+
+    const output = stderr.write.mock.calls.join(" ");
+    expect(output).toBe(
+      "fusion-mcp: FUSION_CF_ACCESS_CLIENT_ID must be set when FUSION_CF_ACCESS_CLIENT_SECRET is set\n",
+    );
+    expect(output).not.toContain(marker);
   });
 });
 

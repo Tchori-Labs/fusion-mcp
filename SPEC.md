@@ -78,6 +78,10 @@ turn the client into a fat SDK.
   a token. Every other endpoint requires the bearer header.
 - The token is read from `FUSION_TOKEN` and held only in memory. It is attached
   as a header per request and never logged or returned.
+- Boards behind an authenticating edge may configure an Access service-token
+  pair and optional `User-Agent` override through the environment. The Access
+  pair is attached to every upstream request, including auth-exempt health
+  checks, and is never logged or returned.
 - Multi-project scoping: an optional `projectId` is a **query param on GET** and a
   **body field on POST**. Omitted ⇒ the server's default project. The MCP layer
   applies `FUSION_DEFAULT_PROJECT_ID` when a tool call omits `projectId`.
@@ -89,6 +93,9 @@ turn the client into a fat SDK.
 | `FUSION_BASE_URL` | no | `http://127.0.0.1:4040` | Base URL of the Fusion daemon (trailing slash stripped). |
 | `FUSION_TOKEN` | for any non-health call | — | Instance daemon bearer token (`fn_<hex>`). Blank ⇒ treated as unset. |
 | `FUSION_DEFAULT_PROJECT_ID` | no | — | Project applied when a tool omits `projectId`. |
+| `FUSION_CF_ACCESS_CLIENT_ID` | with client secret | — | Service-token client id for an authenticating edge. |
+| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id | — | Service-token client secret for an authenticating edge. |
+| `FUSION_USER_AGENT` | no | — | Overrides the `User-Agent` on upstream board requests. |
 | `PORT` | no | `4141` | HTTP transport listen port (loopback). Ignored in stdio mode. |
 | `FUSION_REQUEST_TIMEOUT_MS` | no | `15000` | Per-request timeout for the Fusion client. |
 
