@@ -1,4 +1,14 @@
+import {
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import type { RequestListener } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -111,6 +121,27 @@ describe("mode selection", () => {
   it("recognizes that a test import is not direct CLI execution", () => {
     expect(
       isDirectExecution(import.meta.url, ["node", "/different/module.js"]),
+    ).toBe(false);
+  });
+
+  it("recognizes execution through a package-manager bin symlink", () => {
+    const directory = mkdtempSync(join(tmpdir(), "fusion-mcp-bin-"));
+    try {
+      const entrypoint = join(directory, "index.js");
+      writeFileSync(entrypoint, "");
+      const binSymlink = join(directory, "fusion-mcp");
+      symlinkSync(entrypoint, binSymlink);
+      const moduleUrl = pathToFileURL(realpathSync(entrypoint)).href;
+
+      expect(isDirectExecution(moduleUrl, ["node", binSymlink])).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not treat a nonexistent entry path as direct execution", () => {
+    expect(
+      isDirectExecution(import.meta.url, ["node", "/does/not/exist.js"]),
     ).toBe(false);
   });
 });

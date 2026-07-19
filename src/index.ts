@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -1223,7 +1224,21 @@ export function isDirectExecution(
   moduleUrl: string,
   argv: readonly string[] = process.argv,
 ): boolean {
-  return argv[1] !== undefined && moduleUrl === pathToFileURL(argv[1]).href;
+  const entryPath = argv[1];
+  if (entryPath === undefined) {
+    return false;
+  }
+  if (moduleUrl === pathToFileURL(entryPath).href) {
+    return true;
+  }
+  // Package managers expose the CLI as a `node_modules/.bin` symlink while
+  // Node resolves the module URL to the real file, so compare against the
+  // resolved entry path as well.
+  try {
+    return moduleUrl === pathToFileURL(realpathSync(entryPath)).href;
+  } catch {
+    return false;
+  }
 }
 
 if (isDirectExecution(import.meta.url)) {
