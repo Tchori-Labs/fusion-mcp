@@ -15,13 +15,32 @@ See [`SPEC.md`](./SPEC.md) for the full contract.
 
 > Status: **the executable scaffold, all read tools, and the governed
 > `create_task`, `comment_task`, `steer_task`, `pause_task`, `unpause_task`, and
-> `move_task` write tools are implemented.** Future FM-00x work is tracked in
-> [`briefs/`](./briefs) and integrated into `develop` through Fusion's automatic
-> squash integration.
+> `move_task` write tools are implemented.** Further work is integrated into
+> `develop` through Fusion's automatic squash integration.
+
+## Installation
+
+Requires Node.js 22 or newer.
+
+```bash
+pnpm add @tchori-labs/fusion-mcp
+```
+
+Or run it on demand without installing:
+
+```bash
+npx @tchori-labs/fusion-mcp --stdio
+```
+
+The package installs a `fusion-mcp` executable that speaks MCP over stdio by
+default, so most MCP clients can launch it directly — see
+[MCP client configuration](#mcp-client-configuration).
 
 ## Configuration
 
-All configuration is via environment variables:
+Point the server at **your Fusion instance** with `FUSION_BASE_URL` and
+authenticate with `FUSION_TOKEN`. All configuration is via environment
+variables:
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
@@ -51,19 +70,30 @@ their session with DELETE; SIGINT and SIGTERM stop the listener and close all
 remaining sessions gracefully. The listener remains loopback-only and validates
 exact `Host` values to prevent DNS rebinding.
 
-Register with Claude Code (stdio):
+## MCP client configuration
+
+Configure your MCP client to launch the server over stdio. With the package
+installed (or resolvable through `npx`), point it at your Fusion instance via
+the environment:
 
 ```json
 {
   "mcpServers": {
     "fusion": {
-      "command": "node",
-      "args": ["/path/to/fusion-mcp/dist/index.js", "--stdio"],
-      "env": { "FUSION_TOKEN": "fn_…" }
+      "command": "npx",
+      "args": ["-y", "@tchori-labs/fusion-mcp", "--stdio"],
+      "env": {
+        "FUSION_BASE_URL": "https://fusion.example.com",
+        "FUSION_TOKEN": "fn_…"
+      }
     }
   }
 }
 ```
+
+Contributors running from a local checkout can instead invoke the built entry
+point directly with `"command": "node"` and
+`"args": ["/path/to/fusion-mcp/dist/index.js", "--stdio"]`.
 
 ## Tools
 

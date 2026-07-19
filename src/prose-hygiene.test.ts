@@ -81,6 +81,30 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
     justification: "Package bug-tracker metadata points at the public repository.",
   },
   {
+    path: "README.md",
+    term: "organization-name",
+    line: `pnpm add ${PACKAGE_NAME}`,
+    justification: "Installation docs name the published scoped package.",
+  },
+  {
+    path: "README.md",
+    term: "organization-name",
+    line: `npx ${PACKAGE_NAME} --stdio`,
+    justification: "Installation docs show running the published scoped package.",
+  },
+  {
+    path: "README.md",
+    term: "organization-name",
+    line: `      "args": ["-y", "${PACKAGE_NAME}", "--stdio"],`,
+    justification: "MCP client configuration launches the published scoped package.",
+  },
+  {
+    path: "CHANGELOG.md",
+    term: "organization-name",
+    line: `- Renamed the npm package to \`${PACKAGE_NAME}\` and made it publishable.`,
+    justification: "The changelog records the public scoped package name.",
+  },
+  {
     path: "src/project-tools.test.ts",
     term: "infrastructure-vendor",
     line:
