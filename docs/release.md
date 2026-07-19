@@ -142,7 +142,7 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm contract:check
-TARBALL="$(pnpm pack | tail -1)"   # builds and names the .tgz without publishing
+TARBALL="$(pnpm pack | tail -1)"   # packs the dist/ built above into a .tgz without publishing
 tar -tf "$TARBALL" | sort          # inspect the tarball: dist/ output only, no secrets or stray sources
 npm publish "$TARBALL" --access public   # prompts for a 2FA one-time password
 ```
