@@ -325,7 +325,7 @@ export function buildServer(
 ): McpServer {
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
-  const server = new McpServer({ name: "fusion-mcp", version: "0.1.1" });
+  const server = new McpServer({ name: "fusion-mcp", version: "0.1.2" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
 
@@ -1196,7 +1196,7 @@ function safeCliError(error: unknown): string {
   }
   if (
     error instanceof Error &&
-    /^(FUSION_BASE_URL|FUSION_REQUEST_TIMEOUT_MS|FUSION_MCP_ALLOWED_HOSTS|PORT) must/.test(
+    /^(FUSION_BASE_URL|FUSION_CF_ACCESS_CLIENT_ID|FUSION_CF_ACCESS_CLIENT_SECRET|FUSION_USER_AGENT|FUSION_REQUEST_TIMEOUT_MS|FUSION_MCP_ALLOWED_HOSTS|PORT) must/.test(
       error.message,
     )
   ) {

@@ -29,6 +29,9 @@ settings, or invoke destructive or system operations.
 | `FUSION_BASE_URL` | yes | none for live tests | Reachable base URL of the configured Fusion instance. |
 | `FUSION_TOKEN` | yes | none | Bearer token supplied only through the environment or secret store. Captured traces redact its exact value. |
 | `FUSION_DEFAULT_PROJECT_ID` | no | unset | Passed through to the child server; the health journey itself is instance-scoped. |
+| `FUSION_CF_ACCESS_CLIENT_ID` | with client secret | unset | Optional service-token client id inherited by the child when the live instance is behind an authenticating edge. |
+| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id | unset | Optional service-token client secret inherited by the child. Supply it only through the environment or secret store. |
+| `FUSION_USER_AGENT` | no | unset | Optional upstream `User-Agent` override inherited by the child. |
 | `PORT` | no | unused by the harness | Normal HTTP server setting. The HTTP live harness reserves and supplies its own free loopback port to avoid collisions. |
 | `FUSION_MCP_LIVE_ITERATIONS` | no | `10` | Positive integer iteration count for each transport journey. |
 

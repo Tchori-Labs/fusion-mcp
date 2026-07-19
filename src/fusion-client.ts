@@ -71,6 +71,17 @@ export class FusionClient {
       body = JSON.stringify(options.body);
     }
 
+    if (
+      this.config.cfAccessClientId !== undefined &&
+      this.config.cfAccessClientSecret !== undefined
+    ) {
+      headers.set("CF-Access-Client-Id", this.config.cfAccessClientId);
+      headers.set("CF-Access-Client-Secret", this.config.cfAccessClientSecret);
+    }
+    if (this.config.userAgent !== undefined) {
+      headers.set("User-Agent", this.config.userAgent);
+    }
+
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
