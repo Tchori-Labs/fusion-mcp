@@ -77,8 +77,22 @@ describe("project read tools", () => {
 
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "list_tasks",
+        "get_task",
+        "get_task_logs",
+        "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
+        "create_task",
+        "comment_task",
+        "steer_task",
+        "pause_task",
+        "unpause_task",
+        "list_approvals",
+        "get_approval",
+        "list_missions",
+        "get_mission",
+        "move_task",
       ]);
       const settingsTool = tools.tools.find(
         ({ name }) => name === "read_project_settings",
@@ -221,7 +235,12 @@ describe("project read tools", () => {
 
       expect(result.isError).toBe(true);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(stderr).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledOnce();
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /tool=read_project_settings validation=failed\n$/,
+        ),
+      );
     } finally {
       await harness.close();
     }

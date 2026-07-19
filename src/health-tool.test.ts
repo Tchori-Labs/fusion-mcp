@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("get_board_health", () => {
-  it("is registered alongside the governed project read tools", async () => {
+  it("registers only the implemented governed tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -60,8 +60,22 @@ describe("get_board_health", () => {
       const tools = await harness.client.listTools();
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "list_tasks",
+        "get_task",
+        "get_task_logs",
+        "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
+        "create_task",
+        "comment_task",
+        "steer_task",
+        "pause_task",
+        "unpause_task",
+        "list_approvals",
+        "get_approval",
+        "list_missions",
+        "get_mission",
+        "move_task",
       ]);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -165,6 +179,13 @@ describe("get_board_health", () => {
       });
 
       expect(result.isError).toBe(true);
+      expect(textResult(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Upstream request failed",
+          status: 503,
+        },
+      });
       expect(JSON.stringify(result)).not.toContain("unavailable");
     } finally {
       await harness.close();

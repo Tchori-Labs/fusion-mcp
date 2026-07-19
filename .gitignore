@@ -8,6 +8,7 @@ dist/
 
 # Test / coverage
 coverage/
+stability-results/
 
 # Env & secrets — never commit tokens
 .env
@@ -26,6 +27,9 @@ briefs/
 # Fusion board runtime state
 .fusion
 .pi
+.worktrees/
 fusion.db
 fusion.db-wal
 fusion.db-shm
+# Fusion-managed runtime worktrees
+.worktrees/
