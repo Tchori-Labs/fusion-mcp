@@ -30,6 +30,8 @@ const expectedTools = [
   "unpause_task",
   "list_approvals",
   "get_approval",
+  "list_missions",
+  "get_mission",
 ];
 
 interface StdioProcessInternals {

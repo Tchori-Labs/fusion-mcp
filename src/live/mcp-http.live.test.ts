@@ -34,6 +34,8 @@ const expectedTools = [
   "unpause_task",
   "list_approvals",
   "get_approval",
+  "list_missions",
+  "get_mission",
 ];
 
 function assertTokenAbsent(label: string, text: string, token: string): void {

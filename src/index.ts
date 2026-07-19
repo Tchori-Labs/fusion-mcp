@@ -54,6 +54,16 @@ const getApprovalInputShape = {
   projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
+const listMissionsInputShape = {
+  projectId: z.string().optional(),
+  includeDrafts: z.boolean().optional(),
+} satisfies z.ZodRawShape;
+
+const getMissionInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
 const getTaskLogsInputShape = {
   id: z.string().min(1, "id is required"),
   limit: z.number().int().positive().max(200).default(50),
@@ -692,6 +702,94 @@ export function buildServer(
           {
             type: "text",
             text: JSON.stringify({ approval: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "list_missions",
+    {
+      description: "List board missions",
+      inputSchema: listMissionsInputShape,
+    },
+    async ({ projectId, includeDrafts }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_missions",
+        `includeDrafts=${includeDrafts ?? false} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>("GET", "/api/missions", {
+        query: { projectId: resolvedProjectId, includeDrafts },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ missions: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_mission",
+    {
+      description: "Get a board mission with status and health",
+      inputSchema: getMissionInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_mission",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const encodedId = encodeURIComponent(id);
+      const query = { projectId: resolvedProjectId };
+      const mission = await client.request<unknown>(
+        "GET",
+        `/api/missions/${encodedId}`,
+        { query },
+      );
+
+      let status: unknown = { available: false };
+      try {
+        status = (
+          await client.request<unknown>(
+            "GET",
+            `/api/missions/${encodedId}/status`,
+            { query },
+          )
+        ).data;
+      } catch {
+        // Status is a best-effort sub-view; the primary mission remains useful.
+      }
+
+      let health: unknown = { available: false };
+      try {
+        health = (
+          await client.request<unknown>(
+            "GET",
+            `/api/missions/${encodedId}/health`,
+            { query },
+          )
+        ).data;
+      } catch {
+        // Health is a best-effort sub-view; the primary mission remains useful.
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ mission: mission.data, status, health }),
           },
         ],
       };
