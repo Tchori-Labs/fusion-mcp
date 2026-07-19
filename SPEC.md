@@ -101,9 +101,9 @@ turn the client into a fat SDK.
 
 ## Tool catalogue
 
-Project-scoped read tools accept an optional `projectId`; `get_board_health`
-and `list_projects` are instance-scoped. Write tools are scoped strictly to task
-creation, communication, and board reprioritisation.
+Project- and task-scoped tools accept an optional `projectId`; `get_board_health`
+and `list_projects` are instance-scoped. Write tools remain limited strictly to
+task creation, communication, and board reprioritisation.
 
 | Tool | Class | Params (type) | Backing endpoint |
 | --- | --- | --- | --- |
@@ -111,14 +111,14 @@ creation, communication, and board reprioritisation.
 | `list_projects` | read | *(none)* | `GET /api/projects` |
 | `list_tasks` | read | `projectId?: string`, `limit?: number`, `offset?: number`, `q?: string`, `column?: string`, `includeArchived?: boolean` | `GET /api/tasks` |
 | `get_task` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id` |
-| `get_task_logs` | read | `id: string`, `limit?: number`, `offset?: number` | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`) |
-| `get_task_workflow_results` | read | `id: string` | `GET /api/tasks/:id/workflow-results` |
+| `get_task_logs` | read | `id: string`, `projectId?: string`, `limit?: number`, `offset?: number` | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`) |
+| `get_task_workflow_results` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id/workflow-results` |
 | `read_project_settings` | read | `projectId?: string` | `GET /api/settings` |
 | `create_task` | write | `description: string` (req), `title?: string`, `column?: string`, `priority?: string`, `dependencies?: string[]`, `workflowId?: string`, `baseBranch?: string`, `projectId?: string` | `POST /api/tasks` |
-| `comment_task` | write | `id: string`, `text: string`, `author?: string` | `POST /api/tasks/:id/comments` |
-| `steer_task` | write | `id: string`, `text: string` (1–2000 chars) | `POST /api/tasks/:id/steer` |
-| `pause_task` | write | `id: string` | `POST /api/tasks/:id/pause` |
-| `unpause_task` | write | `id: string` | `POST /api/tasks/:id/unpause` |
+| `comment_task` | write | `id: string`, `text: string`, `author?: string`, `projectId?: string` | `POST /api/tasks/:id/comments` |
+| `steer_task` | write | `id: string`, `text: string` (1–2000 chars), `projectId?: string` | `POST /api/tasks/:id/steer` |
+| `pause_task` | write | `id: string`, `projectId?: string` | `POST /api/tasks/:id/pause` |
+| `unpause_task` | write | `id: string`, `projectId?: string` | `POST /api/tasks/:id/unpause` |
 | `list_approvals` | read | `projectId?: string` | `GET /api/approvals` |
 | `get_approval` | read | `id: string`, `projectId?: string` | `GET /api/approvals/:id` |
 | `list_missions` | read | `projectId?: string`, `includeDrafts?: boolean` | `GET /api/missions` |

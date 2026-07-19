@@ -9,6 +9,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [0.1.2] - 2026-07-19
 
+### Fixed
+
+- Task-scoped log, workflow-result, communication, pause, and unpause tools now
+  apply explicit or configured default project scope on multi-project boards
+  (issue #80).
+
 ### Added
 
 - Environment-only Access service-token headers and an optional upstream
