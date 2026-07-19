@@ -7,7 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-07-19
+## [0.1.3] - 2026-07-19
 
 ### Fixed
 
@@ -52,6 +52,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `pnpm test:live`, kept separate from the mandatory socket-free tests.
 - Read-only `list_approvals` and `get_approval` tools for inspecting board
   approval state with optional project scoping.
+- Read-only `list_missions` and `get_mission` tools for inspecting the board
+  mission hierarchy with optional project scoping.
 - Governed `move_task` write tool for board reprioritisation between columns,
   with optional project scoping in the POST body.
 - A `.env.example` template documenting the server's environment variables.
