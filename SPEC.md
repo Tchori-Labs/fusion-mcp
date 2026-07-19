@@ -96,7 +96,7 @@ turn the client into a fat SDK.
 
 Project-scoped read tools accept an optional `projectId`; `get_board_health`
 and `list_projects` are instance-scoped. Write tools are scoped strictly to task
-creation/communication.
+creation, communication, and board reprioritisation.
 
 | Tool | Class | Params (type) | Backing endpoint |
 | --- | --- | --- | --- |
@@ -132,9 +132,8 @@ deliberate governance-surface expansion (2026-07-17).
 `read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`,
 `get_task_workflow_results`, `create_task`, `comment_task`, `steer_task`,
 `pause_task`, `unpause_task`, `list_approvals`, `get_approval`,
-`list_missions`, and `get_mission` are implemented on top of `FusionClient`.
-`move_task` was added by the human-approved 2026-07-17 spec change and is
-delivered by its own board task.
+`list_missions`, `get_mission`, and `move_task` are implemented on top of
+`FusionClient`.
 
 ### Tool contract compatibility
 

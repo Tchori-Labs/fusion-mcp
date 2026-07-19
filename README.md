@@ -9,13 +9,13 @@ It is **governed by design**: there are deliberately **no** tools or workarounds
 to merge PRs, approve plans, publish work, change settings, delete/archive tasks,
 or restart the system. Fusion's automatic squash integration into `develop` is
 internal board execution, not an MCP merge capability; reviewed `develop` →
-`main` release PRs remain human-only. Writes are limited to task creation and
-communication. Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md)
-for the full contract.
+`main` release PRs remain human-only. Writes are limited to task creation,
+communication, and board reprioritisation. Every tool call is audited to stderr.
+See [`SPEC.md`](./SPEC.md) for the full contract.
 
 > Status: **the executable scaffold, all read tools, and the governed
-> `create_task`, `comment_task`, `steer_task`, `pause_task`, and `unpause_task`
-> write tools are implemented.** Future FM-00x work is tracked in
+> `create_task`, `comment_task`, `steer_task`, `pause_task`, `unpause_task`, and
+> `move_task` write tools are implemented.** Future FM-00x work is tracked in
 > [`briefs/`](./briefs) and integrated into `develop` through Fusion's automatic
 > squash integration.
 
@@ -70,7 +70,8 @@ Register with Claude Code (stdio):
 Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results` ·
 `create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task` ·
-`list_approvals` · `get_approval` · `list_missions` · `get_mission`.
+`list_approvals` · `get_approval` · `list_missions` · `get_mission` ·
+`move_task` (board reprioritisation only).
 
 ### Governed task writes
 
@@ -82,11 +83,14 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 - `steer_task` requires `id` and `text` of 1–2000 characters.
 - `pause_task` and `unpause_task` require only `id` and send body-free POSTs to
   the corresponding encoded task endpoint.
+- `move_task` requires `id` and `column`, accepts optional `projectId`, and is
+  limited to moving a task between board columns for reprioritisation.
 
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
 `list_projects` are instance-scoped. Write tools are limited to governed task
-creation and communication. Audits contain only safe metadata (task ids and
-create-task title/column), never message bodies, project ids, or tokens. Full
+creation, communication, and board reprioritisation. Audits contain only safe
+metadata (task ids, create-task titles, and column names), never message bodies,
+project ids, or tokens. Full
 parameter and endpoint mapping is in [`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Branching & releases

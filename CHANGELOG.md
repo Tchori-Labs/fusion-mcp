@@ -11,6 +11,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Read-only `list_approvals` and `get_approval` tools for inspecting board
   approval state with optional project scoping.
+- Governed `move_task` write tool for board reprioritisation between columns,
+  with optional project scoping in the POST body.
 
 ### Changed
 

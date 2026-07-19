@@ -104,6 +104,12 @@ const taskLifecycleInputShape = {
   id: z.string().min(1, "id is required"),
 } satisfies z.ZodRawShape;
 
+const moveTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  column: z.string().min(1, "column is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
 const listedTaskSchema = z
   .object({
     id: z.string(),
@@ -791,6 +797,41 @@ export function buildServer(
             type: "text",
             text: JSON.stringify({ mission: mission.data, status, health }),
           },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "move_task",
+    {
+      description: "Move a board task to another column (board reprioritisation)",
+      inputSchema: moveTaskInputShape,
+    },
+    async ({ id, column, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "move_task",
+        `id=${id} column=${column} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/move`,
+        {
+          body: {
+            column,
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
         ],
       };
     },
