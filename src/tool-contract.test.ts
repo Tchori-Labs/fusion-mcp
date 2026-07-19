@@ -231,22 +231,12 @@ describe("diffToolContract compatible additions", () => {
   });
 
   it("accepts a new tool from the SPEC catalogue", () => {
-    const candidate: ToolContractManifest = {
+    const baseline: ToolContractManifest = {
       ...committedManifest,
-      tools: [
-        ...committedManifest.tools,
-        {
-          name: "create_task",
-          inputSchema: {
-            type: "object",
-            properties: { description: { type: "string" } },
-            required: ["description"],
-          },
-        },
-      ],
+      tools: committedManifest.tools.filter(({ name }) => name !== "create_task"),
     };
 
-    const result = diffToolContract(committedManifest, candidate);
+    const result = diffToolContract(baseline, committedManifest);
 
     expect(result.compatible).toBe(true);
     expect(result.additive).toContainEqual(

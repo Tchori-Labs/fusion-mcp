@@ -13,11 +13,11 @@ internal board execution, not an MCP merge capability; reviewed `develop` →
 communication. Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md)
 for the full contract.
 
-> Status: **the executable scaffold and all read tools — `get_board_health`,
-> `list_projects`, `read_project_settings`, `list_tasks`, `get_task`,
-> `get_task_logs`, and `get_task_workflow_results` — are implemented.** Future
-> FM-00x work is tracked in [`briefs/`](./briefs) and integrated into `develop`
-> through Fusion's automatic squash integration.
+> Status: **the executable scaffold, all read tools, and the governed
+> `create_task`, `comment_task`, `steer_task`, `pause_task`, and `unpause_task`
+> write tools are implemented.** Future FM-00x work is tracked in
+> [`briefs/`](./briefs) and integrated into `develop` through Fusion's automatic
+> squash integration.
 
 ## Configuration
 
@@ -68,15 +68,25 @@ Register with Claude Code (stdio):
 ## Tools
 
 Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
-`list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results`.
+`list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results` ·
+`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
 
-Planned: `create_task` · `comment_task` · `steer_task` · `pause_task` ·
-`unpause_task`.
+### Governed task writes
+
+- `create_task` requires `description` and accepts only `title`, `column`,
+  `priority`, `dependencies`, `workflowId`, `baseBranch`, and `projectId` as
+  optional fields. Resolved project scope is sent in the POST body, never the
+  query string.
+- `comment_task` requires `id` and non-empty `text`, with optional `author`.
+- `steer_task` requires `id` and `text` of 1–2000 characters.
+- `pause_task` and `unpause_task` require only `id` and send body-free POSTs to
+  the corresponding encoded task endpoint.
 
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
-`list_projects` are instance-scoped. Write tools are scoped to task
-creation/communication. Full parameter and endpoint mapping is in
-[`SPEC.md`](./SPEC.md#tool-catalogue).
+`list_projects` are instance-scoped. Write tools are limited to governed task
+creation and communication. Audits contain only safe metadata (task ids and
+create-task title/column), never message bodies, project ids, or tokens. Full
+parameter and endpoint mapping is in [`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Branching & releases
 

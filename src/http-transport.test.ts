@@ -464,6 +464,11 @@ describe("session-aware Streamable HTTP transport", () => {
         "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
+        "create_task",
+        "comment_task",
+        "steer_task",
+        "pause_task",
+        "unpause_task",
       ]);
 
       await client.callTool({ name: "get_board_health", arguments: {} });

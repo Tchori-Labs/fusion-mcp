@@ -59,6 +59,32 @@ const readProjectSettingsInputShape = {
   projectId: z.string().min(1).optional(),
 } satisfies z.ZodRawShape;
 
+const createTaskInputShape = {
+  description: z.string().min(1, "description is required"),
+  title: z.string().optional(),
+  column: z.string().optional(),
+  priority: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  workflowId: z.string().optional(),
+  baseBranch: z.string().optional(),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const commentTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  text: z.string().min(1, "text is required"),
+  author: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const steerTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  text: z.string().min(1).max(2000),
+} satisfies z.ZodRawShape;
+
+const taskLifecycleInputShape = {
+  id: z.string().min(1, "id is required"),
+} satisfies z.ZodRawShape;
+
 const listedTaskSchema = z
   .object({
     id: z.string(),
@@ -474,6 +500,134 @@ export function buildServer(
       };
     },
   );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "create_task",
+    {
+      description: "Create a board task using the governed safe field subset",
+      inputSchema: createTaskInputShape,
+    },
+    async ({
+      description,
+      title,
+      column,
+      priority,
+      dependencies,
+      workflowId,
+      baseBranch,
+      projectId,
+    }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      const body = {
+        description,
+        ...(title === undefined ? {} : { title }),
+        ...(column === undefined ? {} : { column }),
+        ...(priority === undefined ? {} : { priority }),
+        ...(dependencies === undefined ? {} : { dependencies }),
+        ...(workflowId === undefined ? {} : { workflowId }),
+        ...(baseBranch === undefined ? {} : { baseBranch }),
+        ...(resolvedProjectId === undefined
+          ? {}
+          : { projectId: resolvedProjectId }),
+      };
+
+      auditLog(
+        "create_task",
+        `title=${title ?? "(none)"} column=${column ?? "(default)"}`,
+      );
+      const response = await client.request<unknown>("POST", "/api/tasks", {
+        body,
+      });
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "comment_task",
+    {
+      description: "Post a comment to a task",
+      inputSchema: commentTaskInputShape,
+    },
+    async ({ id, text, author }) => {
+      auditLog("comment_task", `id=${id}`);
+      const comment = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/comments`,
+        { body: author === undefined ? { text } : { text, author } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ comment: comment.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "steer_task",
+    {
+      description: "Send a steering message to a running task",
+      inputSchema: steerTaskInputShape,
+    },
+    async ({ id, text }) => {
+      auditLog("steer_task", `id=${id}`);
+      const steered = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/steer`,
+        { body: { text } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ steered: steered.data }) },
+        ],
+      };
+    },
+  );
+
+  for (const { name, action, description } of [
+    { name: "pause_task", action: "pause", description: "Pause a board task" },
+    {
+      name: "unpause_task",
+      action: "unpause",
+      description: "Resume a paused board task",
+    },
+  ] as const) {
+    registerGovernedTool(
+      server,
+      governedInputSchemas,
+      name,
+      {
+        description,
+        inputSchema: taskLifecycleInputShape,
+      },
+      async ({ id }) => {
+        auditLog(name, `id=${id}`);
+        const response = await client.request<unknown>(
+          "POST",
+          `/api/tasks/${encodeURIComponent(id)}/${action}`,
+        );
+
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ task: response.data }) },
+          ],
+        };
+      },
+    );
+  }
 
   return server;
 }
