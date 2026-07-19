@@ -133,8 +133,10 @@ deliberate governance-surface expansion (2026-07-17).
 `get_task_workflow_results`, `create_task`, `comment_task`, `steer_task`,
 `pause_task`, and `unpause_task` are implemented on top of `FusionClient`.
 `list_approvals`, `get_approval`, `list_missions`, `get_mission`, and
-`move_task` were added by the human-approved 2026-07-17 spec change and are
-delivered by their own board tasks.
+`move_task` were added by the human-approved 2026-07-17 spec change. They are
+**not yet implemented**: they are planned for v0.2.0 and tracked by follow-up
+board tasks. They do not gate the v0.1.0 release unless a human records
+otherwise.
 
 ### Tool contract compatibility
 
