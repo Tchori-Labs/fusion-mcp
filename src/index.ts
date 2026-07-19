@@ -67,12 +67,14 @@ const getMissionInputShape = {
 
 const getTaskLogsInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
   limit: z.number().int().positive().max(200).default(50),
   offset: z.number().int().nonnegative().default(0),
 } satisfies z.ZodRawShape;
 
 const getTaskWorkflowResultsInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const readProjectSettingsInputShape = {
@@ -94,15 +96,18 @@ const commentTaskInputShape = {
   id: z.string().min(1, "id is required"),
   text: z.string().min(1, "text is required"),
   author: z.string().optional(),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const steerTaskInputShape = {
   id: z.string().min(1, "id is required"),
   text: z.string().min(1).max(2000),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const taskLifecycleInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const moveTaskInputShape = {
@@ -325,7 +330,7 @@ export function buildServer(
 ): McpServer {
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
-  const server = new McpServer({ name: "fusion-mcp", version: "0.1.2" });
+  const server = new McpServer({ name: "fusion-mcp", version: "0.1.3" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
 
@@ -435,12 +440,16 @@ export function buildServer(
       description: "Get a paginated page of task logs",
       inputSchema: getTaskLogsInputShape,
     },
-    async ({ id, limit, offset }) => {
-      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
+    async ({ id, projectId, limit, offset }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task_logs",
+        `id=${id} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const logs = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/logs`,
-        { query: { limit, offset } },
+        { query: { projectId: resolvedProjectId, limit, offset } },
       );
       const total = parseTotalCount(logs.headers.get("x-total-count"));
       const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
@@ -467,11 +476,16 @@ export function buildServer(
       description: "Get workflow-step results for a task",
       inputSchema: getTaskWorkflowResultsInputShape,
     },
-    async ({ id }) => {
-      auditLog("get_task_workflow_results", `id=${id}`);
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task_workflow_results",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const workflowResults = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
+        { query: { projectId: resolvedProjectId } },
       );
 
       return {
@@ -583,12 +597,24 @@ export function buildServer(
       description: "Post a comment to a task",
       inputSchema: commentTaskInputShape,
     },
-    async ({ id, text, author }) => {
-      auditLog("comment_task", `id=${id}`);
+    async ({ id, text, author, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "comment_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const comment = await client.request<unknown>(
         "POST",
         `/api/tasks/${encodeURIComponent(id)}/comments`,
-        { body: author === undefined ? { text } : { text, author } },
+        {
+          body: {
+            text,
+            ...(author === undefined ? {} : { author }),
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
       );
 
       return {
@@ -607,12 +633,23 @@ export function buildServer(
       description: "Send a steering message to a running task",
       inputSchema: steerTaskInputShape,
     },
-    async ({ id, text }) => {
-      auditLog("steer_task", `id=${id}`);
+    async ({ id, text, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "steer_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const steered = await client.request<unknown>(
         "POST",
         `/api/tasks/${encodeURIComponent(id)}/steer`,
-        { body: { text } },
+        {
+          body: {
+            text,
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
       );
 
       return {
@@ -639,11 +676,18 @@ export function buildServer(
         description,
         inputSchema: taskLifecycleInputShape,
       },
-      async ({ id }) => {
-        auditLog(name, `id=${id}`);
+      async ({ id, projectId }) => {
+        const resolvedProjectId = projectId ?? config.defaultProjectId;
+        auditLog(
+          name,
+          `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+        );
         const response = await client.request<unknown>(
           "POST",
           `/api/tasks/${encodeURIComponent(id)}/${action}`,
+          resolvedProjectId === undefined
+            ? undefined
+            : { body: { projectId: resolvedProjectId } },
         );
 
         return {

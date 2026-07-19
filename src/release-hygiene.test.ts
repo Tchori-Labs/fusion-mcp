@@ -28,6 +28,48 @@ describe("release documentation hygiene", () => {
     expect(releaseVersions).toContain(packageJson.version);
   });
 
+  it("pins the 0.1.0 changelog to the complete shipped catalogue", () => {
+    const changelog = repositoryFile("CHANGELOG.md");
+    const releaseHeading = /^## \[0\.1\.0\](?: - \d{4}-\d{2}-\d{2})?$/mu.exec(
+      changelog,
+    );
+
+    expect(releaseHeading).not.toBeNull();
+    const sectionStart =
+      (releaseHeading?.index ?? 0) + (releaseHeading?.[0].length ?? 0);
+    const remainingChangelog = changelog.slice(sectionStart);
+    const nextHeading = /^## /mu.exec(remainingChangelog);
+    const releaseSection = remainingChangelog.slice(
+      0,
+      nextHeading?.index ?? remainingChangelog.length,
+    );
+    const shippedTools = [
+      "get_board_health",
+      "list_tasks",
+      "get_task",
+      "get_task_logs",
+      "get_task_workflow_results",
+      "list_projects",
+      "read_project_settings",
+      "create_task",
+      "comment_task",
+      "steer_task",
+      "pause_task",
+      "unpause_task",
+      "list_approvals",
+      "get_approval",
+      "list_missions",
+      "get_mission",
+      "move_task",
+    ];
+
+    for (const tool of shippedTools) {
+      expect(releaseSection, `missing shipped tool: ${tool}`).toContain(tool);
+    }
+    const packageName = ["@tcho", "ri-labs/fusion-mcp"].join("");
+    expect(releaseSection).toContain(packageName);
+  });
+
   it("documents every required release command", () => {
     const runbookPath = `${REPOSITORY_ROOT}/docs/release.md`;
     expect(existsSync(runbookPath)).toBe(true);

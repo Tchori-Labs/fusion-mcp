@@ -113,22 +113,30 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_approvals` · `get_approval` · `list_missions` · `get_mission` ·
 `move_task` (board reprioritisation only).
 
+`get_task_logs` and `get_task_workflow_results` require `id` and accept optional
+`projectId` for task lookup; `get_task_logs` also accepts pagination bounds.
+
 ### Governed task writes
 
 - `create_task` requires `description` and accepts only `title`, `column`,
   `priority`, `dependencies`, `workflowId`, `baseBranch`, and `projectId` as
   optional fields. Resolved project scope is sent in the POST body, never the
   query string.
-- `comment_task` requires `id` and non-empty `text`, with optional `author`.
-- `steer_task` requires `id` and `text` of 1–2000 characters.
-- `pause_task` and `unpause_task` require only `id` and send body-free POSTs to
-  the corresponding encoded task endpoint.
+- `comment_task` requires `id` and non-empty `text`, with optional `author` and
+  `projectId`.
+- `steer_task` requires `id` and `text` of 1–2000 characters, with optional
+  `projectId`.
+- `pause_task` and `unpause_task` require `id` and accept optional `projectId`.
+  They send the resolved project scope in the POST body, while an unresolved
+  scope preserves the body-free request.
 - `move_task` requires `id` and `column`, accepts optional `projectId`, and is
   limited to moving a task between board columns for reprioritisation.
 
-Project-scoped read tools take an optional `projectId`; `get_board_health` and
-`list_projects` are instance-scoped. Write tools are limited to governed task
-creation, communication, and board reprioritisation. Audits contain only safe
+Project- and task-scoped tools take an optional `projectId`; `get_board_health`
+and `list_projects` are instance-scoped. Task-scoped GET requests send resolved
+scope in the query string, while POST requests send it in the body. Write tools
+remain limited to governed task creation, communication, and board
+reprioritisation. Audits contain only safe
 metadata selected per tool, such as task or project ids, create-task titles,
 column names, and pagination bounds; full message bodies and tokens are never
 logged. Full parameter and endpoint mapping is in

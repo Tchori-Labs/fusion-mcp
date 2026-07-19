@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { parseConfig, type Config } from "./config.js";
+import { parseConfig, type Config, type Environment } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
@@ -23,6 +23,14 @@ async function createHarness(config: Config, fetch: FetchLike) {
       await server.close();
     },
   };
+}
+
+function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
+  const url = fetchMock.mock.calls[0]?.[0];
+  if (url === undefined) {
+    throw new Error("expected fetch to be called");
+  }
+  return new URL(url);
 }
 
 function textResult(result: unknown): unknown {
@@ -96,6 +104,73 @@ describe("get_task_workflow_results", () => {
       await harness.close();
     }
   });
+
+  it.each([
+    {
+      label: "explicit project over configured default",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-202", projectId: "explicit-project" },
+      expectedProjectId: "explicit-project",
+    },
+    {
+      label: "configured default project",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-202" },
+      expectedProjectId: "default-project",
+    },
+    {
+      label: "server default project",
+      env: { FUSION_TOKEN: secretMarker },
+      arguments: { id: "FN-202" },
+      expectedProjectId: undefined,
+    },
+  ] satisfies Array<{
+    label: string;
+    env: Environment;
+    arguments: { id: string; projectId?: string };
+    expectedProjectId: string | undefined;
+  }>) (
+    "applies $label scope to the workflow-results request",
+    async ({ env, arguments: toolArguments, expectedProjectId }) => {
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json([]));
+      const harness = await createHarness(parseConfig(env), fetchMock);
+
+      try {
+        const result = await harness.client.callTool({
+          name: "get_task_workflow_results",
+          arguments: toolArguments,
+        });
+
+        expect(result.isError).not.toBe(true);
+        const url = requestedUrl(fetchMock);
+        expect(url.searchParams.get("projectId")).toBe(
+          expectedProjectId ?? null,
+        );
+        expect(url.searchParams.has("projectId")).toBe(
+          expectedProjectId !== undefined,
+        );
+        const auditOutput = vi
+          .mocked(process.stderr.write)
+          .mock.calls.map(([line]) => String(line))
+          .join("");
+        expect(auditOutput).toContain(
+          `projectIdApplied=${String(expectedProjectId !== undefined)}`,
+        );
+        expect(auditOutput).not.toContain("explicit-project");
+        expect(auditOutput).not.toContain("default-project");
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it.each([undefined, ""])(
     "rejects missing or empty id %j before fetching",
