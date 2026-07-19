@@ -269,9 +269,8 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
     error normalisation on non-2xx and transport failure, timeout behaviour,
     auth-exempt health.
   - `health-tool.test.ts` — end-to-end through an in-memory MCP client/server
-    pair (`InMemoryTransport.createLinkedPair()`): asserts the tool set is
-    exactly `[get_board_health, list_tasks]` (governance), and the health/system
-    merge with and without a token.
+    pair (`InMemoryTransport.createLinkedPair()`): asserts the exact implemented
+    17-tool governed set, and the health/system merge with and without a token.
 - **FM tasks** add tests alongside each new tool: projectId scoping, pagination
   edges, input-validation failures, and (FM-003) an integration test that spins
   the HTTP server on an ephemeral port against a mocked Fusion.

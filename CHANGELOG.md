@@ -18,6 +18,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Corrected the specification's governed-tool regression-test description and
+  the README's audit-metadata description to match the implemented behavior.
+
 ## [0.1.0] - 2026-07-19
 
 ### Added

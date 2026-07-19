@@ -89,9 +89,10 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 Project-scoped read tools take an optional `projectId`; `get_board_health` and
 `list_projects` are instance-scoped. Write tools are limited to governed task
 creation, communication, and board reprioritisation. Audits contain only safe
-metadata (task ids, create-task titles, and column names), never message bodies,
-project ids, or tokens. Full
-parameter and endpoint mapping is in [`SPEC.md`](./SPEC.md#tool-catalogue).
+metadata selected per tool, such as task or project ids, create-task titles,
+column names, and pagination bounds; full message bodies and tokens are never
+logged. Full parameter and endpoint mapping is in
+[`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Branching & releases
 
