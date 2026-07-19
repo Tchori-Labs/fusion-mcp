@@ -325,7 +325,7 @@ export function buildServer(
 ): McpServer {
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
-  const server = new McpServer({ name: "fusion-mcp", version: "0.1.1" });
+  const server = new McpServer({ name: "fusion-mcp", version: "0.1.2" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
 

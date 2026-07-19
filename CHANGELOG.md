@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-19
+
 ### Added
 
 - Environment-only Access service-token headers and an optional upstream
