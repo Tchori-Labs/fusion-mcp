@@ -14,7 +14,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Governed `move_task` write tool for board reprioritisation between columns,
   with optional project scoping in the POST body.
 
+- A `.env.example` template documenting the server's environment variables.
+
 ### Changed
+
+- Renamed the npm package to `@tchori-labs/fusion-mcp` and made it publishable.
+- Removed `private` and added `publishConfig`, a `files` allowlist limiting the
+  published tarball to `dist`, `README.md`, `LICENSE`, and `tool-contract.json`,
+  plus `repository`, `bugs`, `homepage`, `keywords`, and `license` metadata.
+- Rewrote the README for external consumers with installation and MCP client
+  configuration instructions, and dropped org-internal references from the
+  README and the agent contract's project layout.
+- Excluded test-only setup files from the build so they are not published.
 
 ### Fixed
 

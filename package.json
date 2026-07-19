@@ -1,14 +1,42 @@
 {
-  "name": "fusion-mcp",
+  "name": "@tchori-labs/fusion-mcp",
   "version": "0.1.0",
-  "private": true,
-  "description": "Governed Model Context Protocol server for a Fusion board",
+  "description": "Governed Model Context Protocol server for a Fusion agent board",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "fusion",
+    "agent-board",
+    "governance",
+    "stdio",
+    "ai-agents",
+    "claude"
+  ],
+  "homepage": "https://github.com/Tchori-Labs/fusion-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tchori-Labs/fusion-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Tchori-Labs/fusion-mcp/issues"
+  },
+  "license": "MIT",
   "type": "module",
   "bin": {
     "fusion-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "tool-contract.json"
+  ],
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "packageManager": "pnpm@10.28.2",
   "scripts": {

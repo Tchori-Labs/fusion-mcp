@@ -25,16 +25,12 @@ restart the system, or publish anything outside the board.
 
 ## Project layout
 
-Target layout — FM-000 establishes it; until then only the contract files
-(SPEC, briefs, CI) exist:
-
 ```
 src/
   config.ts            env parsing/validation → Config; requireToken()
   fusion-client.ts     FusionClient: fetch wrapper (auth, timeout, errors)
   index.ts             CLI entry; buildServer(); auditLog(); stdio + http
   *.test.ts            vitest, colocated with the code they test
-briefs/                task briefs (FM-00x) — what to build next
 .github/workflows/ci.yml   required "Build & Test" check
 SPEC.md  README.md  AGENTS.md
 ```
