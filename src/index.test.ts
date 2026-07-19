@@ -16,6 +16,17 @@ import {
 
 const testConfig = parseConfig({ PORT: "4242" });
 
+const initializeRequest = {
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "index-test", version: "1.0.0" },
+  },
+};
+
 function transportStub(handleRequest = vi.fn()) {
   return {
     start: vi.fn().mockResolvedValue(undefined),
@@ -38,7 +49,8 @@ function httpFactoryHarness() {
   let listener: RequestListener | undefined;
   const once = vi.fn();
   const listen = vi.fn();
-  const server = { once, listen } as unknown as HttpServerLike;
+  const close = vi.fn();
+  const server = { once, listen, close } as unknown as HttpServerLike;
   once.mockReturnValue(server);
   listen.mockImplementation(
     (_port: number, _hostname: string, callback: () => void) => {
@@ -46,6 +58,10 @@ function httpFactoryHarness() {
       return server;
     },
   );
+  close.mockImplementation((callback: (error?: Error) => void) => {
+    callback();
+    return server;
+  });
   const factory = vi.fn((requestListener: RequestListener) => {
     listener = requestListener;
     return server;
@@ -56,6 +72,7 @@ function httpFactoryHarness() {
     server,
     once,
     listen,
+    close,
     getListener(): RequestListener {
       if (listener === undefined) {
         throw new Error("HTTP listener was not created");
@@ -134,130 +151,114 @@ describe("main", () => {
   });
 });
 
-describe("minimal stateless HTTP mode", () => {
-  it("listens only on loopback and does not build an MCP server at startup", async () => {
+describe("session-aware HTTP mode", () => {
+  it("listens only on loopback and builds no MCP server before initialize", async () => {
     const http = httpFactoryHarness();
     const serverFactory = vi.fn();
 
-    await startHttpServer(testConfig, {
+    const handle = await startHttpServer(testConfig, {
       httpServerFactory: http.factory,
       serverFactory,
     });
 
-    expect(http.listen).toHaveBeenCalledWith(4242, "127.0.0.1", expect.any(Function));
+    expect(http.listen).toHaveBeenCalledWith(
+      4242,
+      "127.0.0.1",
+      expect.any(Function),
+    );
     expect(http.once).toHaveBeenCalledWith("error", expect.any(Function));
     expect(serverFactory).not.toHaveBeenCalled();
+    await handle.shutdown();
+    expect(http.close).toHaveBeenCalledOnce();
   });
 
-  it("constructs a fresh stateless JSON transport and server per MCP request", async () => {
+  it("constructs one stateful transport and reuses it by session id", async () => {
     const http = httpFactoryHarness();
-    const handleRequest = vi.fn().mockResolvedValue(undefined);
+    const handleRequest = vi.fn();
     const transport = transportStub(handleRequest);
-    const httpTransportFactory = vi.fn(() => transport);
-    const firstServer = serverStub();
-    const secondServer = serverStub();
-    const serverFactory = vi
-      .fn()
-      .mockReturnValueOnce(firstServer)
-      .mockReturnValueOnce(secondServer);
-
-    await startHttpServer(testConfig, {
-      httpServerFactory: http.factory,
-      httpTransportFactory,
-      serverFactory,
-    });
-
-    const request = { url: "/mcp" };
-    const response = {
-      headersSent: false,
-      statusCode: 200,
-      end: vi.fn(),
-    };
-    http.getListener()(request as never, response as never);
-    http.getListener()(request as never, response as never);
-
-    await vi.waitFor(() => {
-      expect(handleRequest).toHaveBeenCalledTimes(2);
-      expect(firstServer.close).toHaveBeenCalledOnce();
-      expect(secondServer.close).toHaveBeenCalledOnce();
-    });
-    expect(serverFactory).toHaveBeenCalledTimes(2);
-    expect(httpTransportFactory).toHaveBeenCalledTimes(2);
-    expect(httpTransportFactory).toHaveBeenCalledWith({
-      enableJsonResponse: true,
-      enableDnsRebindingProtection: true,
-      allowedHosts: ["127.0.0.1:4242"],
-    });
-    expect(firstServer.connect).toHaveBeenCalledWith(transport);
-    expect(handleRequest).toHaveBeenCalledWith(request, response);
-  });
-
-  it("allows the bound loopback Host and rejects a foreign Host", async () => {
-    const http = httpFactoryHarness();
-    const processed = vi.fn();
     const httpTransportFactory: NonNullable<
       RuntimeDependencies["httpTransportFactory"]
     > = vi.fn((options) => {
-      const handleRequest = vi.fn(async (request, response) => {
-        if (!options.allowedHosts?.includes(request.headers.host ?? "")) {
-          response.statusCode = 403;
-          response.end("Invalid Host header");
-          return;
-        }
-        processed();
-      });
-      return transportStub(handleRequest);
+      handleRequest.mockImplementation(
+        async (_request, response, parsedBody?: unknown) => {
+          if (parsedBody !== undefined) {
+            await options.onsessioninitialized?.("index-session");
+          }
+          response.end();
+        },
+      );
+      return transport;
     });
+    const server = serverStub();
+    const serverFactory = vi.fn(() => server);
 
-    await startHttpServer(testConfig, {
+    const handle = await startHttpServer(testConfig, {
       httpServerFactory: http.factory,
       httpTransportFactory,
-      serverFactory: () => serverStub(),
+      httpRequestBodyParser: vi.fn().mockResolvedValue(initializeRequest),
+      serverFactory,
     });
+    const initializationResponse = {
+      headersSent: false,
+      statusCode: 200,
+      end: vi.fn(),
+    };
+    const followUpResponse = {
+      headersSent: false,
+      statusCode: 200,
+      end: vi.fn(),
+    };
 
-    const allowedResponse = {
-      headersSent: false,
-      statusCode: 200,
-      end: vi.fn(),
-    };
-    const rejectedResponse = {
-      headersSent: false,
-      statusCode: 200,
-      end: vi.fn(),
-    };
     http.getListener()(
       {
         url: "/mcp",
+        method: "POST",
         headers: { host: "127.0.0.1:4242" },
       } as never,
-      allowedResponse as never,
+      initializationResponse as never,
+    );
+    await vi.waitFor(() =>
+      expect(initializationResponse.end).toHaveBeenCalledOnce(),
     );
     http.getListener()(
       {
         url: "/mcp",
-        headers: { host: "attacker.invalid" },
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4242",
+          "mcp-session-id": "index-session",
+        },
       } as never,
-      rejectedResponse as never,
+      followUpResponse as never,
     );
 
-    await vi.waitFor(() => {
-      expect(httpTransportFactory).toHaveBeenCalledTimes(2);
-      expect(rejectedResponse.end).toHaveBeenCalledWith("Invalid Host header");
-    });
-    expect(processed).toHaveBeenCalledOnce();
-    expect(allowedResponse.statusCode).toBe(200);
-    expect(rejectedResponse.statusCode).toBe(403);
-    expect(httpTransportFactory).toHaveBeenCalledWith({
-      enableJsonResponse: true,
-      enableDnsRebindingProtection: true,
-      allowedHosts: ["127.0.0.1:4242"],
-    });
+    await vi.waitFor(() => expect(handleRequest).toHaveBeenCalledTimes(2));
+    expect(serverFactory).toHaveBeenCalledOnce();
+    expect(httpTransportFactory).toHaveBeenCalledOnce();
+    expect(httpTransportFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionIdGenerator: expect.any(Function),
+        enableJsonResponse: true,
+        enableDnsRebindingProtection: true,
+        allowedHosts: ["127.0.0.1:4242"],
+      }),
+    );
+    expect(server.connect).toHaveBeenCalledWith(transport);
+    expect(handleRequest).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "mcp-session-id": "index-session",
+        }),
+      }),
+      followUpResponse,
+    );
+    await handle.shutdown();
   });
 
   it("serves no endpoint other than /mcp", async () => {
     const http = httpFactoryHarness();
     const serverFactory = vi.fn();
-    await startHttpServer(testConfig, {
+    const handle = await startHttpServer(testConfig, {
       httpServerFactory: http.factory,
       serverFactory,
     });
@@ -272,14 +273,13 @@ describe("minimal stateless HTTP mode", () => {
     await vi.waitFor(() => expect(response.end).toHaveBeenCalledOnce());
     expect(response.statusCode).toBe(404);
     expect(serverFactory).not.toHaveBeenCalled();
+    await handle.shutdown();
   });
 
   it("normalizes HTTP dispatch diagnostics without unsafe details", async () => {
     const marker = "unsafe-http-marker";
     const http = httpFactoryHarness();
-    const server = serverStub(
-      vi.fn().mockRejectedValue(new Error(marker)),
-    );
+    const server = serverStub(vi.fn().mockRejectedValue(new Error(marker)));
     const stderr = { write: vi.fn().mockReturnValue(true) };
     const response = {
       headersSent: false,
@@ -289,16 +289,25 @@ describe("minimal stateless HTTP mode", () => {
     const dependencies: RuntimeDependencies = {
       httpServerFactory: http.factory,
       httpTransportFactory: () => transportStub(),
+      httpRequestBodyParser: vi.fn().mockResolvedValue(initializeRequest),
       serverFactory: () => server,
       stderr,
     };
-    await startHttpServer(testConfig, dependencies);
+    const handle = await startHttpServer(testConfig, dependencies);
 
-    http.getListener()({ url: "/mcp" } as never, response as never);
+    http.getListener()(
+      {
+        url: "/mcp",
+        method: "POST",
+        headers: { host: "127.0.0.1:4242" },
+      } as never,
+      response as never,
+    );
 
     await vi.waitFor(() => expect(response.end).toHaveBeenCalledOnce());
     expect(response.statusCode).toBe(500);
     expect(response.end).toHaveBeenCalledWith("MCP request failed");
     expect(JSON.stringify(stderr.write.mock.calls)).not.toContain(marker);
+    await handle.shutdown();
   });
 });

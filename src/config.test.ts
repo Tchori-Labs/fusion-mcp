@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseConfig, requireToken } from "./config.js";
+import { MissingTokenError, parseConfig, requireToken } from "./config.js";
 
 describe("parseConfig", () => {
   it("uses documented defaults", () => {
@@ -98,9 +98,18 @@ describe("requireToken", () => {
     expect(requireToken(config)).toBe("test-secret-marker");
   });
 
-  it("rejects a missing token without exposing a value", () => {
-    expect(() => requireToken(parseConfig({}))).toThrow(
+  it("rejects a missing token with a stable typed error", () => {
+    const invoke = () => requireToken(parseConfig({}));
+
+    expect(invoke).toThrow(MissingTokenError);
+    expect(invoke).toThrow(
       "FUSION_TOKEN is required for authenticated operations",
     );
+    try {
+      invoke();
+      expect.unreachable("expected token requirement to fail");
+    } catch (error) {
+      expect(error).toMatchObject({ name: "MissingTokenError" });
+    }
   });
 });

@@ -265,9 +265,13 @@ describe("communication tool safety", () => {
       const rendered = JSON.stringify(result);
 
       expect(result.isError).toBe(true);
-      expect(rendered).toContain(
-        "Fusion request failed: POST /api/tasks/FN-013/steer (status 503)",
-      );
+      expect(textResult(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Upstream request failed",
+          status: 503,
+        },
+      });
       expect(rendered).not.toContain(upstreamMarker);
       expect(rendered).not.toContain(token);
     } finally {

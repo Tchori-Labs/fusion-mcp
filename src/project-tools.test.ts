@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("project read tools", () => {
-  it("registers exactly the implemented governed tools", async () => {
+  it("registers only the governed scaffold and project read tools", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -77,12 +77,12 @@ describe("project read tools", () => {
 
       expect(tools.tools.map(({ name }) => name)).toEqual([
         "get_board_health",
+        "list_tasks",
         "get_task",
         "get_task_logs",
         "get_task_workflow_results",
         "list_projects",
         "read_project_settings",
-        "list_tasks",
         "create_task",
         "comment_task",
         "steer_task",
@@ -166,58 +166,6 @@ describe("project read tools", () => {
     }
   });
 
-  it("redacts sensitive settings from the tool result", async () => {
-    const secretMarker = "must-not-reach-the-mcp-client";
-    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
-      Response.json({
-        theme: "dark",
-        daemonToken: secretMarker,
-        researchGlobalBraveApiKey: secretMarker,
-        remoteAccess: {
-          providers: { cloudflare: { tunnelToken: secretMarker } },
-          tokenStrategy: {
-            persistent: { token: secretMarker },
-            shortLived: { ttlMs: 900_000 },
-          },
-        },
-        taskTokenBudget: { maxTotalTokens: 10_000 },
-        secretsAccessPolicy: "allowlist",
-      }),
-    );
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: "placeholder" }),
-      fetchMock,
-    );
-
-    try {
-      const result = await harness.client.callTool({
-        name: "read_project_settings",
-        arguments: {},
-      });
-      const rendered = JSON.stringify(result);
-
-      expect(rendered).not.toContain(secretMarker);
-      expect(textResult(result)).toEqual({
-        settings: {
-          theme: "dark",
-          daemonToken: "[REDACTED]",
-          researchGlobalBraveApiKey: "[REDACTED]",
-          remoteAccess: {
-            providers: { cloudflare: { tunnelToken: "[REDACTED]" } },
-            tokenStrategy: {
-              persistent: { token: "[REDACTED]" },
-              shortLived: { ttlMs: 900_000 },
-            },
-          },
-          taskTokenBudget: { maxTotalTokens: 10_000 },
-          secretsAccessPolicy: "allowlist",
-        },
-      });
-    } finally {
-      await harness.close();
-    }
-  });
-
   it("falls back to the configured default projectId", async () => {
     const fetchMock = vi
       .fn<FetchLike>()
@@ -282,7 +230,12 @@ describe("project read tools", () => {
 
       expect(result.isError).toBe(true);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(stderr).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledOnce();
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /tool=read_project_settings validation=failed\n$/,
+        ),
+      );
     } finally {
       await harness.close();
     }

@@ -7,6 +7,8 @@ export interface RequestOptions {
   authenticated?: boolean;
   query?: Readonly<Record<string, QueryValue>>;
   body?: unknown;
+  /** Opt in only for endpoints whose successful contract permits no content. */
+  allowEmptyResponse?: boolean;
 }
 
 export interface FusionResponse<T> {
@@ -14,20 +16,33 @@ export interface FusionResponse<T> {
   headers: Headers;
 }
 
+export type FusionErrorKind =
+  | "http"
+  | "timeout"
+  | "invalid_payload"
+  | "network";
+
 export class FusionError extends Error {
   readonly method: string;
   readonly path: string;
   readonly status: number | undefined;
+  readonly kind: FusionErrorKind;
 
   constructor(
     message: string,
-    metadata: { method: string; path: string; status?: number },
+    metadata: {
+      method: string;
+      path: string;
+      status?: number;
+      kind?: FusionErrorKind;
+    },
   ) {
     super(message);
     this.name = "FusionError";
     this.method = metadata.method;
     this.path = metadata.path;
     this.status = metadata.status;
+    this.kind = metadata.kind ?? (metadata.status === undefined ? "network" : "http");
   }
 }
 
@@ -80,19 +95,58 @@ export class FusionClient {
         await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion request failed: ${normalizedMethod} ${path} (status ${response.status})`,
-          { method: normalizedMethod, path, status: response.status },
+          {
+            method: normalizedMethod,
+            path,
+            status: response.status,
+            kind: "http",
+          },
+        );
+      }
+
+      let text: string;
+      try {
+        text = await response.text();
+      } catch {
+        await response.body?.cancel().catch(() => undefined);
+        if (timedOut || controller.signal.aborted) {
+          throw this.timeoutError(normalizedMethod, path);
+        }
+        throw new FusionError(
+          `Fusion request failed: ${normalizedMethod} ${path}`,
+          { method: normalizedMethod, path, kind: "network" },
+        );
+      }
+
+      if (timedOut || controller.signal.aborted) {
+        throw this.timeoutError(normalizedMethod, path);
+      }
+
+      if (text === "" && options.allowEmptyResponse !== true) {
+        throw new FusionError(
+          `Fusion returned invalid JSON: ${normalizedMethod} ${path}`,
+          {
+            method: normalizedMethod,
+            path,
+            status: response.status,
+            kind: "invalid_payload",
+          },
         );
       }
 
       let data: T;
       try {
-        const text = await response.text();
         data = (text === "" ? undefined : JSON.parse(text)) as T;
       } catch {
         await response.body?.cancel().catch(() => undefined);
         throw new FusionError(
           `Fusion returned invalid JSON: ${normalizedMethod} ${path}`,
-          { method: normalizedMethod, path, status: response.status },
+          {
+            method: normalizedMethod,
+            path,
+            status: response.status,
+            kind: "invalid_payload",
+          },
         );
       }
 
@@ -106,7 +160,7 @@ export class FusionClient {
       }
       throw new FusionError(
         `Fusion request failed: ${normalizedMethod} ${path}`,
-        { method: normalizedMethod, path },
+        { method: normalizedMethod, path, kind: "network" },
       );
     } finally {
       clearTimeout(timeout);
@@ -142,6 +196,7 @@ export class FusionClient {
       throw new FusionError("Invalid Fusion request path", {
         method,
         path,
+        kind: "network",
       });
     }
 
@@ -157,6 +212,7 @@ export class FusionClient {
     return new FusionError(`Fusion request timed out: ${method} ${path}`, {
       method,
       path,
+      kind: "timeout",
     });
   }
 }

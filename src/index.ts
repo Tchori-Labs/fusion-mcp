@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  type ToolCallback,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   StreamableHTTPServerTransport,
   type StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
@@ -19,6 +24,12 @@ import {
   FusionError,
   type FetchLike,
 } from "./fusion-client.js";
+import {
+  formatValidationError,
+  withToolErrorEnvelope,
+} from "./tool-error.js";
+
+const emptyInputShape = {} satisfies z.ZodRawShape;
 
 const listTasksInputShape = {
   projectId: z.string().optional(),
@@ -29,7 +40,50 @@ const listTasksInputShape = {
   includeArchived: z.boolean().optional(),
 } satisfies z.ZodRawShape;
 
-const listTasksInputSchema = z.object(listTasksInputShape);
+const getTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const getTaskLogsInputShape = {
+  id: z.string().min(1, "id is required"),
+  limit: z.number().int().positive().max(200).default(50),
+  offset: z.number().int().nonnegative().default(0),
+} satisfies z.ZodRawShape;
+
+const getTaskWorkflowResultsInputShape = {
+  id: z.string().min(1, "id is required"),
+} satisfies z.ZodRawShape;
+
+const readProjectSettingsInputShape = {
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
+
+const createTaskInputShape = {
+  description: z.string().min(1, "description is required"),
+  title: z.string().optional(),
+  column: z.string().optional(),
+  priority: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  workflowId: z.string().optional(),
+  baseBranch: z.string().optional(),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const commentTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  text: z.string().min(1, "text is required"),
+  author: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const steerTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  text: z.string().min(1).max(2000),
+} satisfies z.ZodRawShape;
+
+const taskLifecycleInputShape = {
+  id: z.string().min(1, "id is required"),
+} satisfies z.ZodRawShape;
 
 const listedTaskSchema = z
   .object({
@@ -49,6 +103,7 @@ function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
     throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
       method: "GET",
       path: "/api/tasks",
+      kind: "invalid_payload",
     });
   }
   return result.data;
@@ -62,12 +117,22 @@ export interface BuildServerOptions {
 export type RunMode = "stdio" | "http";
 
 type RuntimeMcpServer = Pick<McpServer, "connect" | "close">;
-type HttpTransport = Transport &
+type HttpTransport = Pick<Transport, "close"> &
   Pick<StreamableHTTPServerTransport, "handleRequest">;
 
 export interface HttpServerLike {
   listen(port: number, hostname: string, callback: () => void): this;
   once(event: "error", listener: (error: Error) => void): this;
+  close(callback: (error?: Error) => void): this;
+}
+
+export interface HttpServerHandle extends HttpServerLike {
+  shutdown(): Promise<void>;
+}
+
+export interface SignalSource {
+  on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  off(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
 
 export interface RuntimeDependencies {
@@ -79,6 +144,9 @@ export interface RuntimeDependencies {
     options: StreamableHTTPServerTransportOptions,
   ) => HttpTransport;
   httpServerFactory?: (listener: RequestListener) => HttpServerLike;
+  httpRequestBodyParser?: (request: IncomingMessage) => Promise<unknown>;
+  signalSource?: SignalSource;
+  setExitCode?: (exitCode: number) => void;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
 
@@ -137,41 +205,25 @@ export function auditLog(tool: string, argsSummary = ""): void {
   );
 }
 
-function isSensitiveSettingKey(key: string): boolean {
-  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  return [
-    "token",
-    "apikey",
-    "password",
-    "passphrase",
-    "credential",
-    "authorization",
-    "clientsecret",
-    "privatekey",
-  ].some((suffix) => normalized.endsWith(suffix));
+interface GovernedInputSchema {
+  schema: z.ZodType;
+  allowedPathSegments: ReadonlySet<string>;
 }
 
-function redactSensitiveSettings(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactSensitiveSettings);
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
+type GovernedInputSchemas = Map<string, GovernedInputSchema>;
 
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      isSensitiveSettingKey(key)
-        ? "[REDACTED]"
-        : redactSensitiveSettings(entry),
-    ]),
-  );
+type StoredRequestHandler = (
+  request: unknown,
+  extra: unknown,
+) => unknown | Promise<unknown>;
+
+interface RequestHandlerStore {
+  _requestHandlers: Map<string, StoredRequestHandler>;
 }
 
-function isListTasksCall(request: unknown): request is {
+function isToolCall(request: unknown): request is {
   method: "tools/call";
-  params: { name: "list_tasks"; arguments?: unknown };
+  params: { name: string; arguments?: unknown };
 } {
   if (typeof request !== "object" || request === null) {
     return false;
@@ -180,23 +232,65 @@ function isListTasksCall(request: unknown): request is {
   if (method !== "tools/call" || typeof params !== "object" || params === null) {
     return false;
   }
-  return (params as { name?: unknown }).name === "list_tasks";
+  return typeof (params as { name?: unknown }).name === "string";
 }
 
-function auditInvalidListTasksCalls(server: McpServer): void {
+function normalizeInvalidToolCalls(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+): void {
+  const protocol = server.server as unknown as RequestHandlerStore;
   const setRequestHandler = server.server.setRequestHandler.bind(server.server);
 
   server.server.setRequestHandler = (schema, handler) => {
-    setRequestHandler(schema, async (request, extra) => {
-      if (
-        isListTasksCall(request) &&
-        !listTasksInputSchema.safeParse(request.params.arguments ?? {}).success
-      ) {
-        auditLog("list_tasks", "validation=failed");
+    setRequestHandler(schema, handler);
+
+    // Both Server.setRequestHandler and Protocol.setRequestHandler parse the
+    // strict tools/call schema before invoking their public callbacks. Wrap the
+    // installed protocol handler so malformed argument containers can still
+    // receive the governed tool envelope before either SDK parser rejects them.
+    const installedHandler = protocol._requestHandlers.get("tools/call");
+    if (installedHandler === undefined) {
+      return;
+    }
+
+    protocol._requestHandlers.set("tools/call", async (request, extra) => {
+      if (isToolCall(request)) {
+        const input = inputSchemas.get(request.params.name);
+        const rawArguments =
+          request.params.arguments === undefined
+            ? {}
+            : request.params.arguments;
+        const parsed = input?.schema.safeParse(rawArguments);
+        if (input !== undefined && parsed !== undefined && !parsed.success) {
+          auditLog(request.params.name, "validation=failed");
+          return formatValidationError(
+            parsed.error.issues,
+            input.allowedPathSegments,
+          );
+        }
       }
-      return await handler(request, extra);
+      return await installedHandler(request, extra);
     });
   };
+}
+
+function registerGovernedTool<InputShape extends z.ZodRawShape>(
+  server: McpServer,
+  inputSchemas: GovernedInputSchemas,
+  name: string,
+  config: { description: string; inputSchema: InputShape },
+  handler: ToolCallback<InputShape>,
+): void {
+  inputSchemas.set(name, {
+    schema: z.object(config.inputSchema),
+    allowedPathSegments: new Set(Object.keys(config.inputSchema)),
+  });
+  server.registerTool(
+    name,
+    config,
+    withToolErrorEnvelope(handler) as ToolCallback<InputShape>,
+  );
 }
 
 export function buildServer(
@@ -206,13 +300,16 @@ export function buildServer(
   const client =
     options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
-  auditInvalidListTasksCalls(server);
+  const governedInputSchemas: GovernedInputSchemas = new Map();
+  normalizeInvalidToolCalls(server, governedInputSchemas);
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "get_board_health",
     {
       description: "Check Fusion board health and available system information",
-      inputSchema: {},
+      inputSchema: emptyInputShape,
     },
     async () => {
       auditLog("get_board_health");
@@ -236,137 +333,9 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
-    "get_task",
-    {
-      description: "Get a single board task",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        projectId: z.string().optional(),
-      },
-    },
-    async ({ id, projectId }) => {
-      const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
-        "get_task",
-        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
-      );
-      const task = await client.request<unknown>(
-        "GET",
-        `/api/tasks/${encodeURIComponent(id)}`,
-        { query: { projectId: resolvedProjectId } },
-      );
-
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: task.data }) },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "get_task_logs",
-    {
-      description: "Get a paginated page of task logs",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        limit: z.number().int().positive().max(200).default(50),
-        offset: z.number().int().nonnegative().default(0),
-      },
-    },
-    async ({ id, limit, offset }) => {
-      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
-      const logs = await client.request<unknown>(
-        "GET",
-        `/api/tasks/${encodeURIComponent(id)}/logs`,
-        { query: { limit, offset } },
-      );
-      const total = parseTotalCount(logs.headers.get("x-total-count"));
-      const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              logs: logs.data,
-              pagination: { total, hasMore, limit, offset },
-            }),
-          },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "get_task_workflow_results",
-    {
-      description: "Get workflow-step results for a task",
-      inputSchema: { id: z.string().min(1, "id is required") },
-    },
-    async ({ id }) => {
-      auditLog("get_task_workflow_results", `id=${id}`);
-      const workflowResults = await client.request<unknown>(
-        "GET",
-        `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ workflowResults: workflowResults.data }),
-          },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "list_projects",
-    {
-      description: "List configured projects",
-      inputSchema: {},
-    },
-    async () => {
-      auditLog("list_projects");
-      const projects = await client.listProjects();
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ projects: projects.data }) },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "read_project_settings",
-    {
-      description: "Read project or instance settings",
-      inputSchema: { projectId: z.string().min(1).optional() },
-    },
-    async ({ projectId }) => {
-      const effectiveProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
-        "read_project_settings",
-        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
-      );
-      const settings = await client.getSettings(effectiveProjectId);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              settings: redactSensitiveSettings(settings.data),
-            }),
-          },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "list_tasks",
     {
       description: "List board tasks with optional project and task filters",
@@ -404,20 +373,141 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_task",
+    {
+      description: "Get a single board task",
+      inputSchema: getTaskInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const task = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: task.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_task_logs",
+    {
+      description: "Get a paginated page of task logs",
+      inputSchema: getTaskLogsInputShape,
+    },
+    async ({ id, limit, offset }) => {
+      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
+      const logs = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/logs`,
+        { query: { limit, offset } },
+      );
+      const total = parseTotalCount(logs.headers.get("x-total-count"));
+      const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              logs: logs.data,
+              pagination: { total, hasMore, limit, offset },
+            }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_task_workflow_results",
+    {
+      description: "Get workflow-step results for a task",
+      inputSchema: getTaskWorkflowResultsInputShape,
+    },
+    async ({ id }) => {
+      auditLog("get_task_workflow_results", `id=${id}`);
+      const workflowResults = await client.request<unknown>(
+        "GET",
+        `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ workflowResults: workflowResults.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "list_projects",
+    {
+      description: "List configured projects",
+      inputSchema: emptyInputShape,
+    },
+    async () => {
+      auditLog("list_projects");
+      const projects = await client.listProjects();
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ projects: projects.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "read_project_settings",
+    {
+      description: "Read project or instance settings",
+      inputSchema: readProjectSettingsInputShape,
+    },
+    async ({ projectId }) => {
+      const effectiveProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "read_project_settings",
+        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+      );
+      const settings = await client.getSettings(effectiveProjectId);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ settings: settings.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "create_task",
     {
       description: "Create a board task using the governed safe field subset",
-      inputSchema: {
-        description: z.string().min(1, "description is required"),
-        title: z.string().optional(),
-        column: z.string().optional(),
-        priority: z.string().optional(),
-        dependencies: z.array(z.string()).optional(),
-        workflowId: z.string().optional(),
-        baseBranch: z.string().optional(),
-        projectId: z.string().optional(),
-      },
+      inputSchema: createTaskInputShape,
     },
     async ({
       description,
@@ -459,15 +549,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "comment_task",
     {
       description: "Post a comment to a task",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        text: z.string().min(1, "text is required"),
-        author: z.string().optional(),
-      },
+      inputSchema: commentTaskInputShape,
     },
     async ({ id, text, author }) => {
       auditLog("comment_task", `id=${id}`);
@@ -485,14 +573,13 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
     "steer_task",
     {
       description: "Send a steering message to a running task",
-      inputSchema: {
-        id: z.string().min(1, "id is required"),
-        text: z.string().min(1).max(2000),
-      },
+      inputSchema: steerTaskInputShape,
     },
     async ({ id, text }) => {
       auditLog("steer_task", `id=${id}`);
@@ -510,47 +597,37 @@ export function buildServer(
     },
   );
 
-  server.registerTool(
-    "pause_task",
+  for (const { name, action, description } of [
+    { name: "pause_task", action: "pause", description: "Pause a board task" },
     {
-      description: "Pause a board task",
-      inputSchema: { id: z.string().min(1, "id is required") },
-    },
-    async ({ id }) => {
-      auditLog("pause_task", `id=${id}`);
-      const response = await client.request<unknown>(
-        "POST",
-        `/api/tasks/${encodeURIComponent(id)}/pause`,
-      );
-
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: response.data }) },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "unpause_task",
-    {
+      name: "unpause_task",
+      action: "unpause",
       description: "Resume a paused board task",
-      inputSchema: { id: z.string().min(1, "id is required") },
     },
-    async ({ id }) => {
-      auditLog("unpause_task", `id=${id}`);
-      const response = await client.request<unknown>(
-        "POST",
-        `/api/tasks/${encodeURIComponent(id)}/unpause`,
-      );
+  ] as const) {
+    registerGovernedTool(
+      server,
+      governedInputSchemas,
+      name,
+      {
+        description,
+        inputSchema: taskLifecycleInputShape,
+      },
+      async ({ id }) => {
+        auditLog(name, `id=${id}`);
+        const response = await client.request<unknown>(
+          "POST",
+          `/api/tasks/${encodeURIComponent(id)}/${action}`,
+        );
 
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: response.data }) },
-        ],
-      };
-    },
-  );
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ task: response.data }) },
+          ],
+        };
+      },
+    );
+  }
 
   return server;
 }
@@ -580,11 +657,98 @@ function defaultServerFactory(config: Config): RuntimeMcpServer {
   return buildServer(config);
 }
 
+interface HttpSession {
+  transport: HttpTransport;
+  server: RuntimeMcpServer;
+}
+
+interface HttpRuntimeState {
+  shuttingDown: boolean;
+}
+
+type HttpSessionRegistry = Map<string, HttpSession>;
+
+const MAX_HTTP_REQUEST_BODY_BYTES = 1_048_576;
+
+async function parseHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    byteLength += buffer.byteLength;
+    if (byteLength > MAX_HTTP_REQUEST_BODY_BYTES) {
+      throw new Error("request body too large");
+    }
+    chunks.push(buffer);
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
+function requestHeader(
+  request: IncomingMessage,
+  name: "host" | "mcp-session-id",
+): string | undefined {
+  const value = request.headers[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function writeJsonRpcError(
+  response: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+): void {
+  response.statusCode = status;
+  response.setHeader?.("content-type", "application/json");
+  response.end(
+    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
+  );
+}
+
+function closeSessionResources(session: HttpSession): Promise<void> {
+  return Promise.all([
+    session.transport.close().catch(() => undefined),
+    session.server.close().catch(() => undefined),
+  ]).then(() => undefined);
+}
+
+function removeRegisteredSession(
+  sessionId: string,
+  session: HttpSession,
+  sessions: HttpSessionRegistry,
+  dependencies: RuntimeDependencies,
+): boolean {
+  if (sessions.get(sessionId) !== session) {
+    return false;
+  }
+
+  sessions.delete(sessionId);
+  (dependencies.stderr ?? process.stderr).write(
+    `fusion-mcp: session=${sessionId} event=close\n`,
+  );
+  return true;
+}
+
+function stopHttpServer(httpServer: HttpServerLike): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      httpServer.close(() => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
 async function dispatchHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: Config,
   allowedHosts: readonly string[],
+  sessions: HttpSessionRegistry,
+  pendingSessions: Set<HttpSession>,
+  runtimeState: HttpRuntimeState,
   dependencies: RuntimeDependencies,
 ): Promise<void> {
   const path = request.url?.split("?", 1)[0];
@@ -594,20 +758,118 @@ async function dispatchHttpRequest(
     return;
   }
 
+  const host = requestHeader(request, "host");
+  if (host === undefined || !allowedHosts.includes(host)) {
+    writeJsonRpcError(response, 403, -32_000, "Invalid Host header");
+    return;
+  }
+
+  if (runtimeState.shuttingDown) {
+    writeJsonRpcError(response, 503, -32_000, "Server is shutting down");
+    return;
+  }
+
+  const sessionId = requestHeader(request, "mcp-session-id");
+  if (sessionId !== undefined) {
+    const session = sessions.get(sessionId);
+    if (session === undefined) {
+      writeJsonRpcError(response, 404, -32_001, "Session not found");
+      return;
+    }
+
+    try {
+      await session.transport.handleRequest(request, response);
+    } catch {
+      if (!response.headersSent) {
+        response.statusCode = 500;
+        response.end("MCP request failed");
+      }
+      (dependencies.stderr ?? process.stderr).write(
+        "fusion-mcp: HTTP request failed\n",
+      );
+    }
+    return;
+  }
+
+  if (request.method !== "POST") {
+    writeJsonRpcError(
+      response,
+      400,
+      -32_000,
+      "Bad Request: Mcp-Session-Id header is required",
+    );
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await (
+      dependencies.httpRequestBodyParser ?? parseHttpRequestBody
+    )(request);
+  } catch {
+    writeJsonRpcError(response, 400, -32_700, "Parse error");
+    return;
+  }
+
+  if (!isInitializeRequest(parsedBody)) {
+    writeJsonRpcError(
+      response,
+      400,
+      -32_000,
+      "Bad Request: Mcp-Session-Id header is required",
+    );
+    return;
+  }
+
+  if (runtimeState.shuttingDown) {
+    writeJsonRpcError(response, 503, -32_000, "Server is shutting down");
+    return;
+  }
+
   const serverFactory = dependencies.serverFactory ?? defaultServerFactory;
   const transportFactory =
     dependencies.httpTransportFactory ??
     ((options) => new StreamableHTTPServerTransport(options));
   const server = serverFactory(config);
+  const sessionRef: { current?: HttpSession } = {};
   const transport = transportFactory({
+    sessionIdGenerator: randomUUID,
     enableJsonResponse: true,
     enableDnsRebindingProtection: true,
     allowedHosts: [...allowedHosts],
+    onsessioninitialized: (initializedSessionId) => {
+      const session = sessionRef.current;
+      if (session === undefined || runtimeState.shuttingDown) {
+        return;
+      }
+      pendingSessions.delete(session);
+      sessions.set(initializedSessionId, session);
+      (dependencies.stderr ?? process.stderr).write(
+        `fusion-mcp: session=${initializedSessionId} event=init\n`,
+      );
+    },
+    onsessionclosed: async (closedSessionId) => {
+      const session = sessionRef.current;
+      if (
+        session !== undefined &&
+        removeRegisteredSession(
+          closedSessionId,
+          session,
+          sessions,
+          dependencies,
+        )
+      ) {
+        await session.server.close().catch(() => undefined);
+      }
+    },
   });
+  const session = { transport, server };
+  sessionRef.current = session;
+  pendingSessions.add(session);
 
   try {
     await server.connect(transport as unknown as Transport);
-    await transport.handleRequest(request, response);
+    await transport.handleRequest(request, response, parsedBody);
   } catch {
     if (!response.headersSent) {
       response.statusCode = 500;
@@ -617,14 +879,16 @@ async function dispatchHttpRequest(
       "fusion-mcp: HTTP request failed\n",
     );
   } finally {
-    await server.close().catch(() => undefined);
+    if (pendingSessions.delete(session)) {
+      await closeSessionResources(session);
+    }
   }
 }
 
 export async function startHttpServer(
   config: Config,
   dependencies: RuntimeDependencies = {},
-): Promise<HttpServerLike> {
+): Promise<HttpServerHandle> {
   const factory =
     dependencies.httpServerFactory ??
     ((listener: RequestListener) => createServer(listener));
@@ -632,20 +896,68 @@ export async function startHttpServer(
     config,
     dependencies.env ?? process.env,
   );
+  const sessions: HttpSessionRegistry = new Map();
+  const pendingSessions = new Set<HttpSession>();
+  const runtimeState: HttpRuntimeState = { shuttingDown: false };
 
-  return await new Promise<HttpServerLike>((resolve, reject) => {
+  return await new Promise<HttpServerHandle>((resolve, reject) => {
     const httpServer = factory((request, response) => {
       void dispatchHttpRequest(
         request,
         response,
         config,
         allowedHosts,
+        sessions,
+        pendingSessions,
+        runtimeState,
         dependencies,
       );
     });
+    const signalSource = dependencies.signalSource ?? process;
+    let shutdownPromise: Promise<void> | undefined;
+
+    const shutdown = (): Promise<void> => {
+      if (shutdownPromise !== undefined) {
+        return shutdownPromise;
+      }
+
+      runtimeState.shuttingDown = true;
+      signalSource.off("SIGINT", handleSignal);
+      signalSource.off("SIGTERM", handleSignal);
+      const stopped = stopHttpServer(httpServer);
+      const registeredSessions = [...sessions.entries()];
+      const resources = new Set<HttpSession>([
+        ...registeredSessions.map(([, session]) => session),
+        ...pendingSessions,
+      ]);
+      sessions.clear();
+      pendingSessions.clear();
+      for (const [sessionId] of registeredSessions) {
+        (dependencies.stderr ?? process.stderr).write(
+          `fusion-mcp: session=${sessionId} event=close\n`,
+        );
+      }
+
+      shutdownPromise = Promise.all(
+        [...resources].map(closeSessionResources),
+      )
+        .then(() => stopped)
+        .then(() => undefined);
+      return shutdownPromise;
+    };
+
+    const handleSignal = (): void => {
+      void shutdown().then(() => {
+        (dependencies.setExitCode ?? ((code) => { process.exitCode = code; }))(0);
+      });
+    };
+
+    const handle = Object.assign(httpServer, { shutdown });
     httpServer.once("error", reject);
     httpServer.listen(config.port, "127.0.0.1", () => {
-      resolve(httpServer);
+      signalSource.on("SIGINT", handleSignal);
+      signalSource.on("SIGTERM", handleSignal);
+      resolve(handle);
     });
   });
 }

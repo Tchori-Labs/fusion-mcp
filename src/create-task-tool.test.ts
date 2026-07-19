@@ -341,7 +341,13 @@ describe("create_task", () => {
       const rendered = JSON.stringify(result);
 
       expect(result.isError).toBe(true);
-      expect(rendered).toContain("Fusion request failed: POST /api/tasks");
+      expect(textResult(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Upstream request failed",
+          status: 503,
+        },
+      });
       expect(rendered).not.toContain(responseMarker);
       expect(rendered).not.toContain(tokenMarker);
       expect(rendered).not.toContain("Do not expose this request body");
