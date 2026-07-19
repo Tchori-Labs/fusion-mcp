@@ -41,7 +41,7 @@ jobs:
           fi
 
       - name: Checkout tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -60,18 +60,20 @@ jobs:
           echo "OK: ${TAG} (${TAG_SHA}) is on main."
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+          # No dependency caching here on purpose: a release build that mints
+          # provenance must not restore artifacts cached from other refs.
 
       - name: Upgrade npm for Trusted Publishing
         # Trusted Publishing (OIDC) requires npm CLI >= 11.5.1; Node 22 ships
         # npm 10.x, so upgrade the globally installed npm before publishing.
-        run: npm install --global npm@latest
+        run: npm install --global npm@^11.5.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -103,4 +105,6 @@ jobs:
           echo "OK: package.json version v${PKG_VERSION} matches ${TAG}."
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        # Trusted Publishing generates provenance automatically; no
+        # --provenance flag or token secret is needed.
+        run: npm publish --access public
