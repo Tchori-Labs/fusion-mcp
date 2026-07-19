@@ -47,11 +47,16 @@ variables:
 | `FUSION_BASE_URL` | no | `http://127.0.0.1:4040` | Base URL of the Fusion daemon. |
 | `FUSION_TOKEN` | for non-health calls | — | Instance daemon bearer token (`fn_<hex>`). |
 | `FUSION_DEFAULT_PROJECT_ID` | no | — | Project used when a tool omits `projectId`. |
+| `FUSION_CF_ACCESS_CLIENT_ID` | with client secret | — | Service-token client id sent to an authenticating edge. |
+| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id | — | Service-token client secret sent to an authenticating edge. |
+| `FUSION_USER_AGENT` | no | — | Overrides the `User-Agent` on upstream board requests. |
 | `PORT` | no | `4141` | HTTP transport port (loopback). |
 | `FUSION_MCP_ALLOWED_HOSTS` | no | — | Additional exact `Host` values trusted behind a tunnel. |
 | `FUSION_REQUEST_TIMEOUT_MS` | no | `15000` | Per-request timeout. |
 
-The token is read from the environment only and is never logged or returned.
+Credentials are read from the environment only and are never logged or returned.
+The Access client id and secret must be set together; blank values are treated as
+unset.
 
 ## Run modes
 
@@ -63,6 +68,11 @@ node dist/index.js --stdio     # explicit
 # Streamable HTTP — for deployment behind a tunnel
 node dist/index.js --http      # serves http://127.0.0.1:$PORT/mcp
 ```
+
+For a board fronted by an authenticating edge or Zero Trust access proxy, set
+both `FUSION_CF_ACCESS_CLIENT_ID` and `FUSION_CF_ACCESS_CLIENT_SECRET`. The pair
+is sent on every upstream board request, including health checks. Set
+`FUSION_USER_AGENT` only when the edge policy requires a specific agent string.
 
 HTTP mode issues an `mcp-session-id` during initialization and reuses the same
 server transport for subsequent POST and GET/SSE requests. Clients can terminate

@@ -62,6 +62,99 @@ describe("FusionClient", () => {
     );
   });
 
+  it("attaches edge and User-Agent headers to authenticated GET requests", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ version: "1.0" }));
+    const client = new FusionClient(
+      config({
+        token: "bearer-secret-marker",
+        cfAccessClientId: "access-client-marker",
+        cfAccessClientSecret: "access-secret-marker",
+        userAgent: "fusion-mcp-test-agent",
+      }),
+      fetchMock,
+    );
+
+    await client.getSystemInfo();
+
+    const headers = new Headers(calledInit(fetchMock).headers);
+    expect(headers.get("authorization")).toBe("Bearer bearer-secret-marker");
+    expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
+    expect(headers.get("CF-Access-Client-Secret")).toBe(
+      "access-secret-marker",
+    );
+    expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
+    expect(headers.has("content-type")).toBe(false);
+  });
+
+  it("attaches edge and User-Agent headers without changing POST headers", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ created: true }));
+    const client = new FusionClient(
+      config({
+        token: "bearer-secret-marker",
+        cfAccessClientId: "access-client-marker",
+        cfAccessClientSecret: "access-secret-marker",
+        userAgent: "fusion-mcp-test-agent",
+      }),
+      fetchMock,
+    );
+
+    await client.request("POST", "/api/tasks", { body: { title: "A task" } });
+
+    const init = calledInit(fetchMock);
+    const headers = new Headers(init.headers);
+    expect(headers.get("authorization")).toBe("Bearer bearer-secret-marker");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
+    expect(headers.get("CF-Access-Client-Secret")).toBe(
+      "access-secret-marker",
+    );
+    expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
+    expect(init.body).toBe('{"title":"A task"}');
+  });
+
+  it("attaches edge and User-Agent headers to auth-exempt health requests", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ status: "ok" }));
+    const client = new FusionClient(
+      config({
+        token: "bearer-secret-marker",
+        cfAccessClientId: "access-client-marker",
+        cfAccessClientSecret: "access-secret-marker",
+        userAgent: "fusion-mcp-test-agent",
+      }),
+      fetchMock,
+    );
+
+    await client.getHealth();
+
+    const headers = new Headers(calledInit(fetchMock).headers);
+    expect(headers.has("authorization")).toBe(false);
+    expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
+    expect(headers.get("CF-Access-Client-Secret")).toBe(
+      "access-secret-marker",
+    );
+    expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
+  });
+
+  it("omits edge and User-Agent headers when they are unconfigured", async () => {
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ version: "1.0" }));
+    const client = new FusionClient(config({ token: "placeholder" }), fetchMock);
+
+    await client.getSystemInfo();
+
+    const headers = new Headers(calledInit(fetchMock).headers);
+    expect(headers.has("CF-Access-Client-Id")).toBe(false);
+    expect(headers.has("CF-Access-Client-Secret")).toBe(false);
+    expect(headers.has("User-Agent")).toBe(false);
+  });
+
   it("preserves a configured base-URL path for both health call paths", async () => {
     const fetchMock = vi
       .fn<FetchLike>()
@@ -298,17 +391,31 @@ describe("FusionClient", () => {
     expect(String(error)).not.toContain(marker);
   });
 
-  it("never includes a configured secret in thrown or serialized errors", async () => {
-    const marker = "distinctive-test-secret-marker";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockRejectedValue(new Error(`upstream included ${marker}`));
-    const client = new FusionClient(config({ token: marker }), fetchMock);
+  it("never includes configured secrets in thrown or serialized errors", async () => {
+    const markers = {
+      token: "distinctive-test-token-marker",
+      accessClientId: "distinctive-test-access-id-marker",
+      accessClientSecret: "distinctive-test-access-secret-marker",
+    };
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
+      new Response(`denied ${markers.accessClientSecret}`, { status: 403 }),
+    );
+    const client = new FusionClient(
+      config({
+        token: markers.token,
+        cfAccessClientId: markers.accessClientId,
+        cfAccessClientSecret: markers.accessClientSecret,
+      }),
+      fetchMock,
+    );
 
     const error = await client.getSystemInfo().catch((caught: unknown) => caught);
     const rendered = `${String(error)} ${JSON.stringify(error)}`;
 
     expect(error).toBeInstanceOf(FusionError);
-    expect(rendered).not.toContain(marker);
+    expect(error).toMatchObject({ status: 403, kind: "http" });
+    for (const marker of Object.values(markers)) {
+      expect(rendered).not.toContain(marker);
+    }
   });
 });
