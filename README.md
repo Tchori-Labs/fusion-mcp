@@ -111,9 +111,10 @@ Requires Node 22 (`.nvmrc`) and pnpm.
 ```bash
 pnpm install
 pnpm lint         # eslint (flat config)
-pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
-pnpm build        # tsc → dist/
+pnpm typecheck      # tsc --noEmit
+pnpm test           # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
+pnpm test:stability # 10 fresh-process hermetic repetitions for flake detection
+pnpm build          # tsc → dist/
 pnpm dev          # tsx src/index.ts --stdio
 ```
 
@@ -127,7 +128,8 @@ compatibility and deprecation policy.
 CI runs all of the above as the required **Build & Test** check. The mandatory
 suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
 `pnpm test` and may run only as opt-in live checks through a separate, explicit
-Vitest config that does not load the guard.
+Vitest config that does not load the guard. For repeat-run flake detection, use
+`pnpm test:stability` and follow the [stability burn-in runbook](./docs/stability.md).
 
 ### Live integration suite (opt-in)
 

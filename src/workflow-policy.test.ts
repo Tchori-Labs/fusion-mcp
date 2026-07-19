@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LIVE_WORKFLOW_PATH = ".github/workflows/live-integration.yml";
+const STABILITY_WORKFLOW_PATH = ".github/workflows/stability.yml";
 
 function repositoryFile(path: string): string {
   return readFileSync(`${REPOSITORY_ROOT}/${path}`, "utf8");
@@ -15,6 +16,101 @@ function liveWorkflow(): string {
   expect(existsSync(path), `${LIVE_WORKFLOW_PATH} must exist`).toBe(true);
   return repositoryFile(LIVE_WORKFLOW_PATH);
 }
+
+function stabilityWorkflow(): string {
+  const path = `${REPOSITORY_ROOT}/${STABILITY_WORKFLOW_PATH}`;
+  expect(existsSync(path), `${STABILITY_WORKFLOW_PATH} must exist`).toBe(true);
+  return repositoryFile(STABILITY_WORKFLOW_PATH);
+}
+
+describe("stability workflow policy", () => {
+  it("runs only on manual dispatch and the daily schedule", () => {
+    const workflow = stabilityWorkflow();
+
+    expect(
+      workflow,
+      "stability must declare workflow_dispatch",
+    ).toMatch(/^\s+workflow_dispatch:\s*$/mu);
+    expect(workflow, "stability must declare schedule").toMatch(
+      /^\s+schedule:\s*$/mu,
+    );
+    expect(workflow.match(/^\s+- cron:\s*.*$/gmu)).toHaveLength(1);
+
+    const forbiddenTriggers = [
+      "push",
+      "pull_request",
+      "pull_request_target",
+      "workflow_call",
+      "workflow_run",
+    ];
+    for (const trigger of forbiddenTriggers) {
+      expect(
+        workflow,
+        `stability must not declare the ${trigger} trigger`,
+      ).not.toMatch(new RegExp(`^\\s*${trigger}:`, "mu"));
+    }
+  });
+
+  it("stays separate from and does not slow the required check", () => {
+    const workflow = stabilityWorkflow();
+    const requiredWorkflow = repositoryFile(".github/workflows/ci.yml");
+
+    expect(
+      workflow,
+      "stability must not use the required Build & Test job name",
+    ).not.toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(
+      workflow,
+      "stability must not use the required build-and-test job id",
+    ).not.toMatch(/^\s{2}build-and-test:\s*$/mu);
+    expect(
+      requiredWorkflow,
+      "required CI must retain the Build & Test job name",
+    ).toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(requiredWorkflow).not.toContain("test:stability");
+    expect(requiredWorkflow).not.toContain("test:live");
+  });
+
+  it("remains credential-free and excludes live tests", () => {
+    const workflow = stabilityWorkflow();
+
+    for (const forbiddenValue of [
+      "secrets.",
+      "vars.",
+      "FUSION_TOKEN",
+      "FUSION_BASE_URL",
+      "FUSION_MCP_LIVE",
+      "test:live",
+    ]) {
+      expect(
+        workflow,
+        `stability must not contain ${forbiddenValue}`,
+      ).not.toContain(forbiddenValue);
+    }
+  });
+
+  it("installs before running the stability command", () => {
+    const workflow = stabilityWorkflow();
+    const installIndex = workflow.indexOf("pnpm install --frozen-lockfile");
+    const stabilityIndex = workflow.indexOf("pnpm test:stability");
+
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(stabilityIndex).toBeGreaterThan(-1);
+    expect(installIndex).toBeLessThan(stabilityIndex);
+  });
+
+  it("preserves the default count and uploads restricted failure results", () => {
+    const workflow = stabilityWorkflow();
+
+    expect(workflow).not.toContain("FUSION_MCP_STABILITY_ITERATIONS");
+    expect(workflow).toMatch(/^\s+if:\s*failure\(\)\s*$/mu);
+    expect(workflow).toContain("actions/upload-artifact@v4");
+    const artifactPaths = workflow.match(/^\s+path:\s*.*$/gmu) ?? [];
+    expect(artifactPaths).toEqual([
+      "          path: stability-results/*.json",
+    ]);
+  });
+});
 
 describe("live integration workflow policy", () => {
   it("is isolated to manual workflow_dispatch runs", () => {
