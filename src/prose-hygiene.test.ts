@@ -9,6 +9,7 @@ const TEST_FILE = "src/prose-hygiene.test.ts";
 const ORGANIZATION_NAME = ["Tcho", "ri"].join("");
 const INFRASTRUCTURE_VENDOR = ["cloud", "flare"].join("");
 const REPOSITORY_COORDINATE = `${ORGANIZATION_NAME}-Labs/fusion-mcp`;
+const PACKAGE_NAME = `@${ORGANIZATION_NAME.toLowerCase()}-labs/fusion-mcp`;
 
 const DENIED_TERMS = [
   { id: "organization-name", pattern: /tchori/giu }, // prose-hygiene-allow: denylist self-reference
@@ -54,6 +55,30 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
     term: "organization-name",
     line: `  \`${REPOSITORY_COORDINATE}\`.`,
     justification: "The governed issue-target protocol requires this coordinate.",
+  },
+  {
+    path: "package.json",
+    term: "organization-name",
+    line: `  "name": "${PACKAGE_NAME}",`,
+    justification: "The published npm package uses the scoped organization name.",
+  },
+  {
+    path: "package.json",
+    term: "organization-name",
+    line: `  "homepage": "https://github.com/${REPOSITORY_COORDINATE}#readme",`,
+    justification: "Package homepage metadata points at the public repository.",
+  },
+  {
+    path: "package.json",
+    term: "organization-name",
+    line: `    "url": "git+https://github.com/${REPOSITORY_COORDINATE}.git"`,
+    justification: "Package repository metadata points at the public repository.",
+  },
+  {
+    path: "package.json",
+    term: "organization-name",
+    line: `    "url": "https://github.com/${REPOSITORY_COORDINATE}/issues"`,
+    justification: "Package bug-tracker metadata points at the public repository.",
   },
   {
     path: "src/project-tools.test.ts",
