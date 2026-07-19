@@ -45,6 +45,15 @@ const getTaskInputShape = {
   projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
+const listApprovalsInputShape = {
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const getApprovalInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
 const getTaskLogsInputShape = {
   id: z.string().min(1, "id is required"),
   limit: z.number().int().positive().max(200).default(50),
@@ -628,6 +637,66 @@ export function buildServer(
       },
     );
   }
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "list_approvals",
+    {
+      description: "List board approvals",
+      inputSchema: listApprovalsInputShape,
+    },
+    async ({ projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_approvals",
+        `projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>("GET", "/api/approvals", {
+        query: { projectId: resolvedProjectId },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ approvals: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_approval",
+    {
+      description: "Get a single board approval",
+      inputSchema: getApprovalInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_approval",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "GET",
+        `/api/approvals/${encodeURIComponent(id)}`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ approval: response.data }),
+          },
+        ],
+      };
+    },
+  );
 
   return server;
 }

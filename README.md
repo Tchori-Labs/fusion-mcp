@@ -69,7 +69,8 @@ Register with Claude Code (stdio):
 
 Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results` ·
-`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
+`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task` ·
+`list_approvals` · `get_approval`.
 
 ### Governed task writes
 

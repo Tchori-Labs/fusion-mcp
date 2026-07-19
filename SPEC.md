@@ -131,8 +131,8 @@ deliberate governance-surface expansion (2026-07-17).
 **Implementation status:** `get_board_health`, `list_projects`,
 `read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`,
 `get_task_workflow_results`, `create_task`, `comment_task`, `steer_task`,
-`pause_task`, and `unpause_task` are implemented on top of `FusionClient`.
-`list_approvals`, `get_approval`, `list_missions`, `get_mission`, and
+`pause_task`, `unpause_task`, `list_approvals`, and `get_approval` are
+implemented on top of `FusionClient`. `list_missions`, `get_mission`, and
 `move_task` were added by the human-approved 2026-07-17 spec change and are
 delivered by their own board tasks.
 

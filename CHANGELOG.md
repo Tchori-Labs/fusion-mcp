@@ -9,6 +9,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Read-only `list_approvals` and `get_approval` tools for inspecting board
+  approval state with optional project scoping.
+
 ### Changed
 
 ### Fixed
