@@ -1,0 +1,66 @@
+# This workflow is intentionally manual-only. It must never be added as a
+# required status check or branch-protection requirement, and neither its
+# workflow nor job may be renamed to "Build & Test".
+name: Live integration
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: live-integration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  live-integration:
+    name: Run live integration suite
+    runs-on: ubuntu-latest
+    environment: live-integration
+    timeout-minutes: 30
+    env:
+      FUSION_MCP_LIVE: "1"
+      FUSION_BASE_URL: ${{ vars.FUSION_BASE_URL }}
+      FUSION_TOKEN: ${{ secrets.FUSION_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Check live configuration
+        run: |
+          if [ -z "$FUSION_BASE_URL" ]; then
+            echo "::error::Missing required environment variable FUSION_BASE_URL"
+            exit 1
+          fi
+          if [ -z "$FUSION_TOKEN" ]; then
+            echo "::error::Missing required environment secret FUSION_TOKEN"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run live integration suite
+        run: pnpm test:live
+
+      - name: Upload redacted failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-integration-redacted-traces
+          path: /tmp/fusion-mcp-*.log
+          if-no-files-found: ignore
+          retention-days: 5

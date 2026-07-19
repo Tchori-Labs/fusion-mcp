@@ -106,15 +106,23 @@ done
 
 ## CI invocation
 
-Do not add `pnpm test:live` to the required **Build & Test** check. A CI live run
-must be a separate, non-required, manually dispatched job with network access.
-Store `FUSION_TOKEN` in the CI secret store, mask it, map it directly into the
-job environment, and gate the job on the availability of both the secret and a
-reachable `FUSION_BASE_URL`. Run `pnpm install --frozen-lockfile`, `pnpm build`,
-and then the same `pnpm test:live` command shown above.
+The separate `.github/workflows/live-integration.yml` workflow provides the
+sanctioned CI path. It has only a `workflow_dispatch` trigger, is intentionally
+non-required, and must never be added to the required **Build & Test** check or
+a branch-protection rule. Run it manually from the repository's Actions page
+when the configured live instance is available.
 
-Never print the environment, enable shell tracing, upload unredacted process
-output, or make the live job a release-branch protection requirement.
+Create a protected GitHub environment named `live-integration`. Add
+`FUSION_BASE_URL` as an environment variable and `FUSION_TOKEN` as an
+environment secret; the workflow maps both directly into the job and fails
+before installation when either is unavailable. The job explicitly sets
+`FUSION_MCP_LIVE=1`, preserves the default 10 iterations per transport, installs
+with the frozen lockfile, builds, and then runs `pnpm test:live` on Node 22.
+
+Failed runs upload only the harness's already-redacted
+`/tmp/fusion-mcp-*.log` traces for five days. Never print the environment,
+enable shell tracing, upload other process output or workspace files, or make
+the live job a release-branch protection requirement.
 
 ## Isolation, traces, and cleanup
 
