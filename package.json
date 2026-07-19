@@ -1,6 +1,6 @@
 {
   "name": "@tchori-labs/fusion-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Governed Model Context Protocol server for a Fusion agent board",
   "keywords": [
     "mcp",
