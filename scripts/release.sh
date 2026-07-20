@@ -68,9 +68,14 @@ confirm() {
 
 require() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
+install_deps() {
+  say "Installing locked dependencies for this checkout"
+  pnpm install --frozen-lockfile
+}
+
+# gates() assumes install_deps() already ran for the current checkout.
 gates() {
   say "Running release gates (lint, typecheck, test, build, contract:check)"
-  pnpm install --frozen-lockfile
   pnpm lint
   pnpm typecheck
   pnpm test
@@ -95,7 +100,9 @@ wait_for_ci() {
 
 # --- preflight ---------------------------------------------------------------
 
-require gh; require pnpm; require jq; require node
+require gh; require pnpm; require jq; require node; require perl; require git
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' \
+  || die "node >=22 required, got $(node --version)"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
 [[ -f package.json ]] || die "run from the repo root"
 [[ "$REPO" == */* ]] || die "could not derive owner/repo from remote.origin.url"
@@ -114,6 +121,12 @@ say "Releasing $TAG of $PKG ($REPO) (mode: $MODE)"
 if [[ "$MODE" != "--resume" ]]; then
   say "Preparing $PREP_BRANCH off origin/develop"
   git fetch origin --quiet
+  # Recreate the prep branch cleanly so re-running after a partial failure does
+  # not trip over a leftover local branch. Switch away first if it's current.
+  if [[ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" == "$PREP_BRANCH" ]]; then
+    git switch --detach --quiet HEAD
+  fi
+  git branch -D "$PREP_BRANCH" >/dev/null 2>&1 || true
   git switch -c "$PREP_BRANCH" origin/develop
 
   say "Bumping version to $VERSION in package.json and src/index.ts"
@@ -134,6 +147,10 @@ if [[ "$MODE" != "--resume" ]]; then
   warn "'## [$VERSION] - <today>' (keep an empty Unreleased section), then save."
   confirm "CHANGELOG.md updated for $VERSION?"
 
+  # Install for this exact checkout BEFORE regenerating the contract — pin_contract
+  # runs `pnpm contract:generate`, which needs an in-sync node_modules for the ref
+  # we just switched to (a fresh box has none at all).
+  install_deps
   pin_contract
   gates
 
@@ -173,6 +190,13 @@ wait_for_ci "$REL_PR"
 MERGEABLE="$(gh pr view "$REL_PR" --repo "$REPO" --json mergeable -q .mergeable)"
 [[ "$MERGEABLE" == "MERGEABLE" ]] || die "PR #$REL_PR is not mergeable ($MERGEABLE)"
 
+# CRITICAL: verify the version BEFORE the irreversible merge into main. Check the
+# exact state that will land — origin/develop's package.json — not the merge
+# commit after the fact. A merge into main is not something this script can undo.
+PKG_ON_DEVELOP="$(git show origin/develop:package.json | jq -r .version)"
+[[ "$PKG_ON_DEVELOP" == "$VERSION" ]] \
+  || die "origin/develop package.json is $PKG_ON_DEVELOP, expected $VERSION — refusing to merge the wrong state into main (did the prep PR land on develop?)"
+
 confirm "Merge release PR #$REL_PR into main with a MERGE COMMIT?"
 gh pr merge "$REL_PR" --repo "$REPO" --merge
 
@@ -203,8 +227,19 @@ confirm "Dispatch publish.yml for $TAG?"
 # CRITICAL: dispatch ON THE TAG REF. The npm-publish environment admits only
 # `v*` tag refs; dispatching on the default branch (develop) is rejected in ~1s.
 gh workflow run publish.yml --repo "$REPO" --ref "$TAG" -f "tag=$TAG"
-sleep 8
-RUN_ID="$(gh run list --repo "$REPO" --workflow=publish.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+
+# Registration can lag, and a bare `--limit 1` can grab an unrelated in-flight
+# run. Poll for the run dispatched against THIS tag ref (headBranch == $TAG).
+say "Locating the dispatched publish run for $TAG"
+RUN_ID=""
+for _ in $(seq 1 30); do
+  RUN_ID="$(gh run list --repo "$REPO" --workflow=publish.yml \
+    --branch "$TAG" --event workflow_dispatch --limit 1 \
+    --json databaseId -q '.[0].databaseId // empty')"
+  [[ -n "$RUN_ID" ]] && break
+  sleep 3
+done
+[[ -n "$RUN_ID" ]] || die "could not find the dispatched publish run for $TAG"
 RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
 say "Publish run: $RUN_URL"
 
