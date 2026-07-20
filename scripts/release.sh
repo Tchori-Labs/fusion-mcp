@@ -31,7 +31,11 @@
 
 set -euo pipefail
 
-REPO="Tchori-Labs/fusion-mcp"
+# Derived at runtime rather than hardcoded so no org/package literal lives in a
+# tracked file (the repo's prose-hygiene guard forbids that). REPO comes from
+# the origin remote; PKG (below, after preflight) comes from package.json.
+REPO="$(git config --get remote.origin.url 2>/dev/null \
+  | sed -E 's#^(git@[^:]+:|https?://[^/]+/)##; s#\.git$##')"
 
 # --- arg parsing -------------------------------------------------------------
 
@@ -94,9 +98,14 @@ wait_for_ci() {
 require gh; require pnpm; require jq; require node
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
 [[ -f package.json ]] || die "run from the repo root"
+[[ "$REPO" == */* ]] || die "could not derive owner/repo from remote.origin.url"
 [[ -z "$(git status --porcelain)" ]] || die "working tree is not clean"
 
-say "Releasing $TAG (mode: $MODE)"
+# Published package name, straight from the manifest (no literal in this file).
+PKG="$(jq -r .name package.json)"
+[[ "$PKG" == @*/* || -n "$PKG" ]] || die "could not read package name from package.json"
+
+say "Releasing $TAG of $PKG ($REPO) (mode: $MODE)"
 
 # =============================================================================
 # Stage 1 — prepare (skipped with --resume)
@@ -221,9 +230,9 @@ gh run watch "$RUN_ID" --repo "$REPO" --exit-status || die "publish run failed: 
 # =============================================================================
 
 say "Verifying the npm registry"
-LATEST="$(curl -fsSL "https://registry.npmjs.org/@tchori-labs/fusion-mcp" | jq -r '."dist-tags".latest')"
+LATEST="$(curl -fsSL "https://registry.npmjs.org/$PKG" | jq -r '."dist-tags".latest')"
 if [[ "$LATEST" == "$VERSION" ]]; then
-  say "Published: @tchori-labs/fusion-mcp@$VERSION is now 'latest' 🎉"
+  say "Published: ${PKG}@${VERSION} is now 'latest' 🎉"
 else
   warn "Registry 'latest' is $LATEST (CDN caches can lag a few minutes for the public view;"
   warn "the run succeeded and the direct registry read above is authoritative)."
