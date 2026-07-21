@@ -6,13 +6,13 @@ tag, or publish a release. Those actions remain human-controlled.
 
 ## Who does what
 
-| Stage | Authorized actor | Responsibility |
-| --- | --- | --- |
-| Prepare | Agent or human release preparer | Verify gates, version, contract baseline, and changelog; open the same-repository release pull request when its recorded scope and other preconditions are satisfied. |
-| Review and merge | Human | Review the pull request and merge it with a merge commit. Do not squash. |
-| Tag and publish | Human, or an explicitly authorized follow-up | Tag the merge commit and publish the release using the changelog entry. |
-| Publish to npm | Human, or an explicitly authorized follow-up | Publish the tagged version to the npm registry: the first release manually from a clean checkout with 2FA, every later release through the `publish.yml` workflow gated by the `npm-publish` environment. |
-| Reconcile branches | Human release owner | Back-merge the release branch into the integration branch when the release merge created a delta, then decide and record the development-version convention. |
+| Stage              | Authorized actor                             | Responsibility                                                                                                                                                                                            |
+| ------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prepare            | Agent or human release preparer              | Verify gates, version, contract baseline, and changelog; open the same-repository release pull request when its recorded scope and other preconditions are satisfied.                                     |
+| Review and merge   | Human                                        | Review the pull request and merge it with a merge commit. Do not squash.                                                                                                                                  |
+| Tag and publish    | Human, or an explicitly authorized follow-up | Tag the merge commit and publish the release using the changelog entry.                                                                                                                                   |
+| Publish to npm     | Human, or an explicitly authorized follow-up | Publish the tagged version to the npm registry: the first release manually from a clean checkout with 2FA, every later release through the `publish.yml` workflow gated by the `npm-publish` environment. |
+| Reconcile branches | Human release owner                          | Back-merge the release branch into the integration branch when the release merge created a delta, then decide and record the development-version convention.                                              |
 
 Agents never approve or merge pull requests, create release tags, or publish
 releases. Opening a release pull request does not cross that boundary; it only

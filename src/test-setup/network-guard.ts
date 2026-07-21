@@ -4,17 +4,15 @@ import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import tls from "node:tls";
 
-const installedMarker = Symbol.for("fusion-mcp.hermetic-network-guard.installed");
+const installedMarker = Symbol.for(
+  "fusion-mcp.hermetic-network-guard.installed",
+);
 
 export const HERMETIC_NETWORK_ERROR_MESSAGE =
   "Hermetic test guard: outbound network is blocked in the mandatory 'pnpm test' suite. Inject a fake fetch (FetchLike) or use InMemoryTransport; run networked checks via the opt-in live suite (see SPEC.md).";
 
 export type NetworkOperation =
-  | "TCP connect"
-  | "TLS connect"
-  | "UDP connect"
-  | "UDP send"
-  | "DNS lookup";
+  "TCP connect" | "TLS connect" | "UDP connect" | "UDP send" | "DNS lookup";
 
 export class HermeticNetworkError extends Error {
   readonly operation: NetworkOperation;
@@ -44,10 +42,7 @@ function replaceMethod(
   }
 }
 
-function patchDnsMethods(
-  target: object,
-  promiseBased: boolean,
-): void {
+function patchDnsMethods(target: object, promiseBased: boolean): void {
   for (const property of Object.getOwnPropertyNames(target)) {
     if (
       property === "lookup" ||

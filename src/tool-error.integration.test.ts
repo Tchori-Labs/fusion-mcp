@@ -11,19 +11,14 @@ import {
   type FusionResponse,
 } from "./fusion-client.js";
 import { buildServer, type BuildServerOptions } from "./index.js";
-import {
-  type ToolErrorEnvelope,
-  withToolErrorEnvelope,
-} from "./tool-error.js";
+import { type ToolErrorEnvelope, withToolErrorEnvelope } from "./tool-error.js";
 
 const tokenMarker = "distinctive-fake-token-marker";
 const unsafeMarker = "distinctive-body-or-stack-marker";
 
-async function createHarness(
-  config: Config,
-  options: BuildServerOptions,
-) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+async function createHarness(config: Config, options: BuildServerOptions) {
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, options);
   const client = new Client({ name: "tool-error-test", version: "1.0.0" });
 
@@ -42,7 +37,8 @@ async function createHarness(
 async function createWriteStyleHarness(
   writeOperation: (text: string) => Promise<void>,
 ) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = new McpServer({
     name: "tool-error-write-style-test",
     version: "1.0.0",
@@ -55,10 +51,13 @@ async function createWriteStyleHarness(
     },
     withToolErrorEnvelope(async ({ text }: { text: string }) => {
       await writeOperation(text);
-      return { content: [{ type: "text" as const, text: "{\"ok\":true}" }] };
+      return { content: [{ type: "text" as const, text: '{"ok":true}' }] };
     }),
   );
-  const client = new Client({ name: "tool-error-write-test", version: "1.0.0" });
+  const client = new Client({
+    name: "tool-error-write-test",
+    version: "1.0.0",
+  });
 
   await server.connect(serverTransport);
   await client.connect(clientTransport);

@@ -7,7 +7,8 @@ import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -179,7 +180,7 @@ describe("comment_task", () => {
       projectId?: string;
     };
     expectedProjectId: string | undefined;
-  }>) (
+  }>)(
     "applies $label scope in the comment body",
     async ({ env, arguments: toolArguments, expectedProjectId }) => {
       const fetchMock = vi
@@ -306,7 +307,7 @@ describe("steer_task", () => {
     env: Environment;
     arguments: { id: string; text: string; projectId?: string };
     expectedProjectId: string | undefined;
-  }>) (
+  }>)(
     "applies $label scope in the steer body",
     async ({ env, arguments: toolArguments, expectedProjectId }) => {
       const fetchMock = vi
@@ -372,36 +373,43 @@ describe("communication tool safety", () => {
   it.each([
     [
       "comment_task",
-      { id: "FN-013", text: "comment-text-sentinel", author: "author-sentinel" },
+      {
+        id: "FN-013",
+        text: "comment-text-sentinel",
+        author: "author-sentinel",
+      },
     ],
     ["steer_task", { id: "FN-014", text: "steer-text-sentinel" }],
-  ])("audits a successful %s call with the task id only", async (name, arguments_) => {
-    const token = "FUSION_TOKEN_SENTINEL";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json({ accepted: true }));
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: token }),
-      fetchMock,
-    );
-
-    try {
-      await harness.client.callTool({ name, arguments: arguments_ });
-
-      expect(process.stderr.write).toHaveBeenCalledTimes(1);
-      const output = auditOutput();
-      expect(output).toMatch(
-        new RegExp(
-          `^\\[[^\\]]+\\] tool=${name} id=${arguments_.id} projectIdApplied=false\\n$`,
-        ),
+  ])(
+    "audits a successful %s call with the task id only",
+    async (name, arguments_) => {
+      const token = "FUSION_TOKEN_SENTINEL";
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ accepted: true }));
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: token }),
+        fetchMock,
       );
-      expect(output).not.toContain(arguments_.text);
-      expect(output).not.toContain("author-sentinel");
-      expect(output).not.toContain(token);
-    } finally {
-      await harness.close();
-    }
-  });
+
+      try {
+        await harness.client.callTool({ name, arguments: arguments_ });
+
+        expect(process.stderr.write).toHaveBeenCalledTimes(1);
+        const output = auditOutput();
+        expect(output).toMatch(
+          new RegExp(
+            `^\\[[^\\]]+\\] tool=${name} id=${arguments_.id} projectIdApplied=false\\n$`,
+          ),
+        );
+        expect(output).not.toContain(arguments_.text);
+        expect(output).not.toContain("author-sentinel");
+        expect(output).not.toContain(token);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("surfaces a token-free FusionError without the upstream body", async () => {
     const token = "FUSION_TOKEN_SENTINEL";

@@ -131,7 +131,8 @@ export async function generateToolManifest(
   config: Config = parseConfig({}),
   fetch: FetchLike = rejectNetworkFetch,
 ): Promise<ToolContractManifest> {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({
     name: "fusion-mcp-tool-contract",
@@ -621,7 +622,12 @@ function compareSchema(
     if (before === undefined || after === undefined) {
       if (stableValue(before) !== stableValue(after)) {
         result.breaking.push(
-          change("schema-changed", tool, propertyPath, "property schema changed"),
+          change(
+            "schema-changed",
+            tool,
+            propertyPath,
+            "property schema changed",
+          ),
         );
       }
     } else {
@@ -686,7 +692,9 @@ function compareSchema(
         removed ? "constraint-loosened" : "constraint-tightened",
         tool,
         `${path}.pattern`,
-        removed ? "pattern constraint was removed" : "pattern constraint changed",
+        removed
+          ? "pattern constraint was removed"
+          : "pattern constraint changed",
       ),
     );
   }
@@ -706,7 +714,12 @@ function compareSchema(
     compareSchema(baselineItems, candidateItems, tool, `${path}.items`, result);
   } else if (stableValue(baseline.items) !== stableValue(candidate.items)) {
     result.breaking.push(
-      change("schema-changed", tool, `${path}.items`, "array item schema changed"),
+      change(
+        "schema-changed",
+        tool,
+        `${path}.items`,
+        "array item schema changed",
+      ),
     );
   }
 
@@ -841,8 +854,12 @@ export function diffToolContract(
     additive: [],
   };
   const governedNames = new Set<string>(SPEC_TOOL_CATALOGUE);
-  const baselineByName = new Map(baseline.tools.map((tool) => [tool.name, tool]));
-  const candidateByName = new Map(candidate.tools.map((tool) => [tool.name, tool]));
+  const baselineByName = new Map(
+    baseline.tools.map((tool) => [tool.name, tool]),
+  );
+  const candidateByName = new Map(
+    candidate.tools.map((tool) => [tool.name, tool]),
+  );
 
   if (baseline.manifestVersion !== candidate.manifestVersion) {
     result.breaking.push(

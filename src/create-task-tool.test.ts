@@ -9,7 +9,8 @@ import { buildServer } from "./index.js";
 const tokenMarker = "distinctive-token-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -161,7 +162,10 @@ describe("create_task", () => {
         FUSION_TOKEN: tokenMarker,
         FUSION_DEFAULT_PROJECT_ID: "project-default",
       },
-      arguments: { description: "Explicit scope", projectId: "project-explicit" },
+      arguments: {
+        description: "Explicit scope",
+        projectId: "project-explicit",
+      },
       expectedProjectId: "project-explicit",
     },
     {
@@ -179,57 +183,59 @@ describe("create_task", () => {
       arguments: { description: "Server scope" },
       expectedProjectId: undefined,
     },
-  ])("sends $name only through the POST body", async ({
-    env,
-    arguments: callArguments,
-    expectedProjectId,
-  }) => {
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json({ id: "FN-102" }));
-    const harness = await createHarness(parseConfig(env), fetchMock);
+  ])(
+    "sends $name only through the POST body",
+    async ({ env, arguments: callArguments, expectedProjectId }) => {
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ id: "FN-102" }));
+      const harness = await createHarness(parseConfig(env), fetchMock);
 
-    try {
-      await harness.client.callTool({
-        name: "create_task",
-        arguments: callArguments,
-      });
+      try {
+        await harness.client.callTool({
+          name: "create_task",
+          arguments: callArguments,
+        });
 
-      expect(requestedUrl(fetchMock).search).toBe("");
-      const body = requestedBody(fetchMock);
-      if (expectedProjectId === undefined) {
-        expect(body).not.toHaveProperty("projectId");
-      } else {
-        expect(body.projectId).toBe(expectedProjectId);
+        expect(requestedUrl(fetchMock).search).toBe("");
+        const body = requestedBody(fetchMock);
+        if (expectedProjectId === undefined) {
+          expect(body).not.toHaveProperty("projectId");
+        } else {
+          expect(body.projectId).toBe(expectedProjectId);
+        }
+      } finally {
+        await harness.close();
       }
-    } finally {
-      await harness.close();
-    }
-  });
+    },
+  );
 
   it.each([
     { name: "missing", arguments: {} },
     { name: "empty", arguments: { description: "" } },
-  ])("rejects a $name description before fetch", async ({ arguments: callArguments }) => {
-    const fetchMock = vi.fn<FetchLike>();
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: tokenMarker }),
-      fetchMock,
-    );
+  ])(
+    "rejects a $name description before fetch",
+    async ({ arguments: callArguments }) => {
+      const fetchMock = vi.fn<FetchLike>();
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: tokenMarker }),
+        fetchMock,
+      );
 
-    try {
-      const result = await harness.client.callTool({
-        name: "create_task",
-        arguments: callArguments,
-      });
+      try {
+        const result = await harness.client.callTool({
+          name: "create_task",
+          arguments: callArguments,
+        });
 
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result)).toContain("description");
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      await harness.close();
-    }
-  });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result)).toContain("description");
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it.each([
     { name: "non-array", dependencies: "FN-001" },

@@ -46,21 +46,23 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
   {
     path: "AGENTS.md",
     term: "organization-name",
-    line:
-      `- **PRs may target ONLY \`${REPOSITORY_COORDINATE}\`.** Never open a pull request`,
-    justification: "The governed cross-repository protocol requires this coordinate.",
+    line: `- **PRs may target ONLY \`${REPOSITORY_COORDINATE}\`.** Never open a pull request`,
+    justification:
+      "The governed cross-repository protocol requires this coordinate.",
   },
   {
     path: "AGENTS.md",
     term: "organization-name",
     line: `  \`${REPOSITORY_COORDINATE}\`.`,
-    justification: "The governed issue-target protocol requires this coordinate.",
+    justification:
+      "The governed issue-target protocol requires this coordinate.",
   },
   {
     path: "package.json",
     term: "organization-name",
     line: `  "name": "${PACKAGE_NAME}",`,
-    justification: "The published npm package uses the scoped organization name.",
+    justification:
+      "The published npm package uses the scoped organization name.",
   },
   {
     path: "package.json",
@@ -72,13 +74,15 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
     path: "package.json",
     term: "organization-name",
     line: `    "url": "git+https://github.com/${REPOSITORY_COORDINATE}.git"`,
-    justification: "Package repository metadata points at the public repository.",
+    justification:
+      "Package repository metadata points at the public repository.",
   },
   {
     path: "package.json",
     term: "organization-name",
     line: `    "url": "https://github.com/${REPOSITORY_COORDINATE}/issues"`,
-    justification: "Package bug-tracker metadata points at the public repository.",
+    justification:
+      "Package bug-tracker metadata points at the public repository.",
   },
   {
     path: "README.md",
@@ -90,13 +94,15 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
     path: "README.md",
     term: "organization-name",
     line: `npx ${PACKAGE_NAME} --stdio`,
-    justification: "Installation docs show running the published scoped package.",
+    justification:
+      "Installation docs show running the published scoped package.",
   },
   {
     path: "README.md",
     term: "organization-name",
     line: `      "args": ["-y", "${PACKAGE_NAME}", "--stdio"],`,
-    justification: "MCP client configuration launches the published scoped package.",
+    justification:
+      "MCP client configuration launches the published scoped package.",
   },
   {
     path: "CHANGELOG.md",
@@ -107,24 +113,25 @@ const ALLOWED_OCCURRENCES: readonly AllowedOccurrence[] = [
   {
     path: "src/project-tools.test.ts",
     term: "infrastructure-vendor",
-    line:
-      `          providers: { ${INFRASTRUCTURE_VENDOR}: { tunnelToken: secretMarker } },`,
-    justification: "Realistic provider-key input verifies recursive secret redaction.",
+    line: `          providers: { ${INFRASTRUCTURE_VENDOR}: { tunnelToken: secretMarker } },`,
+    justification:
+      "Realistic provider-key input verifies recursive secret redaction.",
     optional: true,
   },
   {
     path: "src/project-tools.test.ts",
     term: "infrastructure-vendor",
-    line:
-      `          providers: { ${INFRASTRUCTURE_VENDOR}: { tunnelToken: "[REDACTED]" } },`,
-    justification: "Expected output preserves the provider key while redacting its secret.",
+    line: `          providers: { ${INFRASTRUCTURE_VENDOR}: { tunnelToken: "[REDACTED]" } },`,
+    justification:
+      "Expected output preserves the provider key while redacting its secret.",
     optional: true,
   },
   ...DENIED_TERMS.map(({ id, pattern }) => ({
     path: TEST_FILE,
     term: id,
     line: `  { id: "${id}", pattern: ${pattern.toString()} },${SELF_REFERENCE_SUFFIX}`,
-    justification: "The guard must name each denied term in its own definition.",
+    justification:
+      "The guard must name each denied term in its own definition.",
   })),
 ];
 
@@ -181,8 +188,7 @@ describe("repository prose hygiene", () => {
                 `${path}:${lineIndex + 1}: unexpected ${term.id}: ${line.trim()}`,
               );
             } else {
-              useCounts[allowanceIndex] =
-                (useCounts[allowanceIndex] ?? 0) + 1;
+              useCounts[allowanceIndex] = (useCounts[allowanceIndex] ?? 0) + 1;
             }
           }
         }

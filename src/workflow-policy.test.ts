@@ -27,10 +27,9 @@ describe("stability workflow policy", () => {
   it("runs only on manual dispatch and the daily schedule", () => {
     const workflow = stabilityWorkflow();
 
-    expect(
-      workflow,
-      "stability must declare workflow_dispatch",
-    ).toMatch(/^\s+workflow_dispatch:\s*$/mu);
+    expect(workflow, "stability must declare workflow_dispatch").toMatch(
+      /^\s+workflow_dispatch:\s*$/mu,
+    );
     expect(workflow, "stability must declare schedule").toMatch(
       /^\s+schedule:\s*$/mu,
     );
@@ -106,9 +105,7 @@ describe("stability workflow policy", () => {
     expect(workflow).toMatch(/^\s+if:\s*failure\(\)\s*$/mu);
     expect(workflow).toContain("actions/upload-artifact@v4");
     const artifactPaths = workflow.match(/^\s+path:\s*.*$/gmu) ?? [];
-    expect(artifactPaths).toEqual([
-      "          path: stability-results/*.json",
-    ]);
+    expect(artifactPaths).toEqual(["          path: stability-results/*.json"]);
   });
 });
 
@@ -116,10 +113,9 @@ describe("live integration workflow policy", () => {
   it("is isolated to manual workflow_dispatch runs", () => {
     const workflow = liveWorkflow();
 
-    expect(
-      workflow,
-      "live integration must declare workflow_dispatch",
-    ).toMatch(/^on:\s*\n\s+workflow_dispatch:\s*$/mu);
+    expect(workflow, "live integration must declare workflow_dispatch").toMatch(
+      /^on:\s*\n\s+workflow_dispatch:\s*$/mu,
+    );
 
     const forbiddenTriggers = [
       "push",
@@ -166,7 +162,8 @@ describe("live integration workflow policy", () => {
       workflow,
       "live integration must explicitly opt in with FUSION_MCP_LIVE=1",
     ).toMatch(/^\s+FUSION_MCP_LIVE:\s*"1"\s*$/mu);
-    const baseUrlMappings = workflow.match(/^\s+FUSION_BASE_URL:\s*.*$/gmu) ?? [];
+    const baseUrlMappings =
+      workflow.match(/^\s+FUSION_BASE_URL:\s*.*$/gmu) ?? [];
     const tokenMappings = workflow.match(/^\s+FUSION_TOKEN:\s*.*$/gmu) ?? [];
     expect(
       baseUrlMappings,
@@ -175,7 +172,9 @@ describe("live integration workflow policy", () => {
     expect(
       baseUrlMappings[0],
       "FUSION_BASE_URL must come from a GitHub environment variable",
-    ).toMatch(/^\s+FUSION_BASE_URL:\s*\$\{\{\s*vars\.FUSION_BASE_URL\s*\}\}\s*$/u);
+    ).toMatch(
+      /^\s+FUSION_BASE_URL:\s*\$\{\{\s*vars\.FUSION_BASE_URL\s*\}\}\s*$/u,
+    );
     expect(
       tokenMappings,
       "FUSION_TOKEN must have exactly one job environment mapping",
@@ -206,10 +205,7 @@ describe("live integration workflow policy", () => {
       workflow,
       "a bare env command could expose live credentials",
     ).not.toMatch(/^\s*(?:run:\s*)?(?:env|printenv)\s*$/mu);
-    expect(
-      workflow,
-      "the live token must never be echoed",
-    ).not.toMatch(
+    expect(workflow, "the live token must never be echoed").not.toMatch(
       /\becho\b[^\n]*(?:\$FUSION_TOKEN|\$\{FUSION_TOKEN\}|\$\{\{\s*secrets\.FUSION_TOKEN\s*\}\})/u,
     );
   });
@@ -223,8 +219,13 @@ describe("live integration workflow policy", () => {
       workflow,
       "CI must preserve the default 10 live journey iterations",
     ).not.toContain("FUSION_MCP_LIVE_ITERATIONS");
-    expect(buildIndex, "live integration must run pnpm build").toBeGreaterThan(-1);
-    expect(liveTestIndex, "live integration must run pnpm test:live").toBeGreaterThan(-1);
+    expect(buildIndex, "live integration must run pnpm build").toBeGreaterThan(
+      -1,
+    );
+    expect(
+      liveTestIndex,
+      "live integration must run pnpm test:live",
+    ).toBeGreaterThan(-1);
     expect(
       buildIndex,
       "pnpm build must run before pnpm test:live",

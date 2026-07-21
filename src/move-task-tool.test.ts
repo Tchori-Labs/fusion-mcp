@@ -10,7 +10,8 @@ const secretMarker = "distinctive-move-token-marker";
 const unsafeUpstreamMarker = "unsafe-move-upstream-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -177,9 +178,14 @@ describe("move_task", () => {
     arguments: { id: string; column: string; projectId?: string };
     expectedBody: Record<string, unknown>;
     projectIdApplied: boolean;
-  }>) (
+  }>)(
     "applies $label project scoping",
-    async ({ env, arguments: toolArguments, expectedBody, projectIdApplied }) => {
+    async ({
+      env,
+      arguments: toolArguments,
+      expectedBody,
+      projectIdApplied,
+    }) => {
       const fetchMock = vi
         .fn<FetchLike>()
         .mockResolvedValue(Response.json({ id: "FN-014" }));
@@ -223,36 +229,39 @@ describe("move_task", () => {
       arguments: { id: "FN-015", column: "" },
       field: "column",
     },
-  ])("rejects $label before fetch", async ({ arguments: toolArguments, field }) => {
-    const fetchMock = vi.fn<FetchLike>();
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: secretMarker }),
-      fetchMock,
-    );
+  ])(
+    "rejects $label before fetch",
+    async ({ arguments: toolArguments, field }) => {
+      const fetchMock = vi.fn<FetchLike>();
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: secretMarker }),
+        fetchMock,
+      );
 
-    try {
-      const result = await harness.client.callTool({
-        name: "move_task",
-        arguments: toolArguments,
-      });
-      const rendered = JSON.stringify(result);
+      try {
+        const result = await harness.client.callTool({
+          name: "move_task",
+          arguments: toolArguments,
+        });
+        const rendered = JSON.stringify(result);
 
-      expect(result.isError).toBe(true);
-      expect(textResult(result)).toMatchObject({
-        error: {
-          code: "validation",
-          details: [{ path: [field] }],
-        },
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(auditLines()).toHaveLength(1);
-      expect(auditLines()[0]).toMatch(/tool=move_task validation=failed\n$/);
-      expect(auditLines()[0]).not.toContain(secretMarker);
-      expect(rendered).not.toContain(secretMarker);
-    } finally {
-      await harness.close();
-    }
-  });
+        expect(result.isError).toBe(true);
+        expect(textResult(result)).toMatchObject({
+          error: {
+            code: "validation",
+            details: [{ path: [field] }],
+          },
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(auditLines()).toHaveLength(1);
+        expect(auditLines()[0]).toMatch(/tool=move_task validation=failed\n$/);
+        expect(auditLines()[0]).not.toContain(secretMarker);
+        expect(rendered).not.toContain(secretMarker);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("surfaces an upstream failure without response or token details", async () => {
     const fetchMock = vi

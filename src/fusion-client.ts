@@ -17,10 +17,7 @@ export interface FusionResponse<T> {
 }
 
 export type FusionErrorKind =
-  | "http"
-  | "timeout"
-  | "invalid_payload"
-  | "network";
+  "http" | "timeout" | "invalid_payload" | "network";
 
 export class FusionError extends Error {
   readonly method: string;
@@ -42,7 +39,8 @@ export class FusionError extends Error {
     this.method = metadata.method;
     this.path = metadata.path;
     this.status = metadata.status;
-    this.kind = metadata.kind ?? (metadata.status === undefined ? "network" : "http");
+    this.kind =
+      metadata.kind ?? (metadata.status === undefined ? "network" : "http");
   }
 }
 

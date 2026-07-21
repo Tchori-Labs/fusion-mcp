@@ -23,8 +23,11 @@ describe("release documentation hygiene", () => {
     expect(changelog).toMatch(/^## \[Unreleased\]$/mu);
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/u);
 
-    const releaseVersions = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\](?: - \d{4}-\d{2}-\d{2})?$/gmu)]
-      .map((match) => match[1]);
+    const releaseVersions = [
+      ...changelog.matchAll(
+        /^## \[(\d+\.\d+\.\d+)\](?: - \d{4}-\d{2}-\d{2})?$/gmu,
+      ),
+    ].map((match) => match[1]);
     expect(releaseVersions).toContain(packageJson.version);
   });
 

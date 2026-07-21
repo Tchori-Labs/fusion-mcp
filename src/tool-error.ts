@@ -27,8 +27,14 @@ export const TOOL_ERROR_CONTRACT = {
   optionalFields: ["error.status", "error.details"],
   codes: [
     { code: "validation", meaning: "tool arguments failed validation" },
-    { code: "missing_token", meaning: "authentication token is not configured" },
-    { code: "upstream_error", meaning: "upstream HTTP or transport request failed" },
+    {
+      code: "missing_token",
+      meaning: "authentication token is not configured",
+    },
+    {
+      code: "upstream_error",
+      meaning: "upstream HTTP or transport request failed",
+    },
     { code: "timeout", meaning: "upstream request timed out" },
     {
       code: "invalid_upstream_payload",
@@ -72,7 +78,10 @@ function errorResult(envelope: ToolErrorEnvelope): CallToolResult {
 }
 
 function upstreamStatus(status: number | undefined): number | undefined {
-  return Number.isInteger(status) && status !== undefined && status >= 100 && status <= 599
+  return Number.isInteger(status) &&
+    status !== undefined &&
+    status >= 100 &&
+    status <= 599
     ? status
     : undefined;
 }
