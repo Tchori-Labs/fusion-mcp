@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LIVE_WORKFLOW_PATH = ".github/workflows/live-integration.yml";
+const PACK_SMOKE_WORKFLOW_PATH = ".github/workflows/pack-smoke.yml";
 const STABILITY_WORKFLOW_PATH = ".github/workflows/stability.yml";
 
 function repositoryFile(path: string): string {
@@ -15,6 +16,12 @@ function liveWorkflow(): string {
   const path = `${REPOSITORY_ROOT}/${LIVE_WORKFLOW_PATH}`;
   expect(existsSync(path), `${LIVE_WORKFLOW_PATH} must exist`).toBe(true);
   return repositoryFile(LIVE_WORKFLOW_PATH);
+}
+
+function packSmokeWorkflow(): string {
+  const path = `${REPOSITORY_ROOT}/${PACK_SMOKE_WORKFLOW_PATH}`;
+  expect(existsSync(path), `${PACK_SMOKE_WORKFLOW_PATH} must exist`).toBe(true);
+  return repositoryFile(PACK_SMOKE_WORKFLOW_PATH);
 }
 
 function stabilityWorkflow(): string {
@@ -256,5 +263,95 @@ describe("live integration workflow policy", () => {
         "live diagnostics must never upload the whole workspace",
       ).not.toMatch(/^\s+path:\s*\.(?:\/)?\s*$/mu);
     }
+  });
+});
+
+describe("pack smoke workflow policy", () => {
+  it("is reusable and runs on packaging-relevant pull requests", () => {
+    const workflow = packSmokeWorkflow();
+
+    expect(workflow, "pack smoke must declare workflow_call").toMatch(
+      /^\s+workflow_call:\s*$/mu,
+    );
+    expect(workflow, "pack smoke must declare pull_request").toMatch(
+      /^\s+pull_request:\s*$/mu,
+    );
+    for (const path of [
+      "package.json",
+      "tsconfig.build.json",
+      "src/index.ts",
+    ]) {
+      expect(workflow, `pack smoke paths must include ${path}`).toMatch(
+        new RegExp(`^\\s+- ${path.replace(".", "\\.")}\\s*$`, "mu"),
+      );
+    }
+  });
+
+  it("stays separate from the required Build & Test check", () => {
+    const workflow = packSmokeWorkflow();
+    const requiredWorkflow = repositoryFile(".github/workflows/ci.yml");
+
+    expect(
+      workflow,
+      "pack smoke must not use the required Build & Test job name",
+    ).not.toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(
+      workflow,
+      "pack smoke must not use the required build-and-test job id",
+    ).not.toMatch(/^\s{2}build-and-test:\s*$/mu);
+    expect(
+      requiredWorkflow,
+      "required CI must retain the Build & Test job name",
+    ).toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(requiredWorkflow).not.toContain("pack-smoke");
+  });
+
+  it("is credential-free and probes initialize on the globbed tarball", () => {
+    const workflow = packSmokeWorkflow();
+    const organizationName = ["Tcho", "ri"].join("").toLowerCase();
+
+    for (const forbiddenValue of ["secrets.", "vars.", "FUSION_TOKEN"]) {
+      expect(
+        workflow,
+        `pack smoke must not contain ${forbiddenValue}`,
+      ).not.toContain(forbiddenValue);
+    }
+    expect(workflow).toContain('"method":"initialize"');
+    expect(workflow).toContain("serverInfo");
+    expect(workflow).toContain('"$RUNNER_TEMP"/pack/*.tgz');
+    expect(workflow.toLowerCase()).not.toContain(organizationName);
+  });
+
+  it("gates publishing with a smoke run against the release tag", () => {
+    const publishWorkflow = repositoryFile(".github/workflows/publish.yml");
+
+    expect(publishWorkflow).toMatch(
+      /^  publish:\s*$[\s\S]*?^    needs:\s*(?:pack-smoke|\[pack-smoke\])\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^  pack-smoke:\s*$[\s\S]*?^    uses:\s*\.\/\.github\/workflows\/pack-smoke\.yml\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^\s+push:\s*\n\s+tags:\s*\n\s+- ["']v\*["']\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^      ref:\s*\$\{\{\s*format\('refs\/tags\/\{0\}',\s*inputs\.tag \|\| github\.ref_name\)\s*\}\}\s*$/mu,
+    );
+  });
+
+  it("installs, builds, and packs before booting the installed bin", () => {
+    const workflow = packSmokeWorkflow();
+    const installIndex = workflow.indexOf("pnpm install --frozen-lockfile");
+    const buildIndex = workflow.indexOf("pnpm build");
+    const packIndex = workflow.indexOf("pnpm pack --pack-destination");
+    const bootIndex = workflow.indexOf("Boot installed bin and initialize MCP");
+
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(buildIndex).toBeGreaterThan(-1);
+    expect(packIndex).toBeGreaterThan(-1);
+    expect(bootIndex).toBeGreaterThan(-1);
+    expect(installIndex).toBeLessThan(buildIndex);
+    expect(buildIndex).toBeLessThan(packIndex);
+    expect(packIndex).toBeLessThan(bootIndex);
   });
 });

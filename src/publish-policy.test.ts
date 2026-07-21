@@ -13,15 +13,20 @@ function publishWorkflow(): string {
 }
 
 describe("publish workflow policy", () => {
-  it("is isolated to manual workflow_dispatch runs", () => {
+  it("runs only for version-tag pushes or manual dispatch", () => {
     const workflow = publishWorkflow();
 
-    expect(workflow, "publish must declare workflow_dispatch").toMatch(
-      /^on:\s*\n\s+workflow_dispatch:\s*$/mu,
+    expect(workflow, "publish must declare the push trigger").toMatch(
+      /^\s+push:\s*$/mu,
+    );
+    expect(workflow, "publish must restrict pushes to version tags").toMatch(
+      /^\s+tags:\s*\n\s+- ["']v\*["']\s*$/mu,
+    );
+    expect(workflow, "publish must retain workflow_dispatch").toMatch(
+      /^\s+workflow_dispatch:\s*$/mu,
     );
 
     const forbiddenTriggers = [
-      "push",
       "pull_request",
       "pull_request_target",
       "schedule",
@@ -64,22 +69,44 @@ describe("publish workflow policy", () => {
     ).toMatch(/^\s+environment: npm-publish$/mu);
   });
 
-  it("never interpolates the tag input into shell scripts", () => {
+  it("resolves manual and push tags without shell interpolation", () => {
     const workflow = publishWorkflow();
-    const interpolations = workflow
+    const inputReferences = workflow
       .split("\n")
-      .filter((line) => line.includes("${{ inputs.tag }}"));
+      .filter((line) => line.includes("inputs.tag"));
 
     expect(
-      interpolations.length,
-      "the tag input must be referenced somewhere",
+      inputReferences.length,
+      "the manual tag input must be referenced somewhere",
     ).toBeGreaterThan(0);
-    for (const line of interpolations) {
+    for (const line of inputReferences) {
       expect(
         line,
-        "inputs.tag may only feed env indirection, the checkout ref, or the concurrency group",
+        "the tag selector may only feed env indirection, checkout refs, or concurrency",
       ).toMatch(/^\s*(TAG:|ref:|group:)/u);
+      expect(line, "push runs must fall back to github.ref_name").toContain(
+        "inputs.tag || github.ref_name",
+      );
     }
+    expect(workflow).not.toMatch(/^\s*run:\s*.*\$\{\{[^\n]*inputs\.tag/mu);
+  });
+
+  it("checks out only the fully qualified tag and verifies its commit", () => {
+    const workflow = publishWorkflow();
+    const qualifiedTagRefs =
+      workflow.match(
+        /^\s+ref:\s*\$\{\{\s*format\('refs\/tags\/\{0\}',\s*inputs\.tag \|\| github\.ref_name\)\s*\}\}\s*$/gmu,
+      ) ?? [];
+
+    expect(
+      qualifiedTagRefs,
+      "both pack-smoke and publish checkouts must use a fully qualified tag ref",
+    ).toHaveLength(2);
+    expect(workflow).toContain(
+      'TAG_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"',
+    );
+    expect(workflow).toContain('HEAD_SHA="$(git rev-parse HEAD)"');
+    expect(workflow).toContain('if [ "$HEAD_SHA" != "$TAG_SHA" ]; then');
   });
 
   it("does not restore dependency caches into the release build", () => {
@@ -89,18 +116,23 @@ describe("publish workflow policy", () => {
     ).not.toMatch(/^\s+cache:/mu);
   });
 
-  it("pins every action to a full commit SHA", () => {
+  it("pins every external action to a full commit SHA", () => {
     const uses = publishWorkflow()
       .split("\n")
       .filter((line) => /^\s+uses:/u.test(line));
+    const localPackSmoke = "uses: ./.github/workflows/pack-smoke.yml";
 
     expect(uses.length, "publish must use at least one action").toBeGreaterThan(
       0,
     );
+    expect(uses.map((line) => line.trim())).toContain(localPackSmoke);
     for (const line of uses) {
+      if (line.trim() === localPackSmoke) {
+        continue;
+      }
       expect(
         line,
-        "actions in the publish workflow must be pinned to a 40-hex commit SHA",
+        "external actions in publish must be pinned to a 40-hex commit SHA",
       ).toMatch(/uses:\s+\S+@[0-9a-f]{40}(\s+#.*)?$/u);
     }
   });

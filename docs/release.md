@@ -165,14 +165,24 @@ package's publishing settings, add a GitHub Actions trusted publisher bound to:
 
 The repository owner must also open the `npm-publish` environment in the
 repository settings and add a required-reviewer protection rule, so that every
-dispatch of the publish workflow waits for explicit human approval before it can
+run of the publish workflow waits for explicit human approval before it can
 reach the registry.
 
-With that in place, publish a release by dispatching the **Publish** workflow
-(`publish.yml`) with the release tag — for example `v0.1.1` — as its `tag`
-input. The workflow checks out that exact tag, refuses to continue unless the
-tag's commit is an ancestor of `main`, re-runs all five release gates, verifies
-that `package.json`'s version equals the tag, then runs
+With that in place, pushing a version tag such as `v0.1.1` starts the **Publish**
+workflow (`publish.yml`) for that tag. A human can also dispatch the workflow
+with an existing release tag as its `tag` input when a controlled rerun is
+needed. Before the publish job can start, the `pack-smoke` gate checks out the
+fully qualified release-tag ref, builds and packs it, installs the tarball into a
+clean temporary project, boots the installed `fusion-mcp` bin, and asserts a successful
+MCP `initialize` response over stdio. The same smoke workflow runs on pull
+requests that change package metadata, the bin source, the lockfile, or build and
+release workflow configuration; it is path-filtered and is not a required branch
+protection check.
+
+After the smoke passes, the publish job checks out the fully qualified tag ref,
+verifies that `HEAD` is the dereferenced tag commit, refuses to continue unless
+the tag's commit is an ancestor of `main`, re-runs all five release gates,
+verifies that `package.json`'s version equals the tag, then runs
 `npm publish --provenance --access public` authenticated through OIDC. No npm
 token secret is stored, and npm attaches provenance automatically. Because
 trusted publishing only becomes available after the first version exists,

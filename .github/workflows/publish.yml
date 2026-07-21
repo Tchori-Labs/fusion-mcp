@@ -1,12 +1,17 @@
-# Governed npm publish. Manual-only: a human dispatches this with the tag to
-# release. The job checks out that exact tag, refuses to publish unless the
-# tag's commit is on `main`, re-runs all five release gates, verifies the
-# package version equals the tag, and publishes via npm Trusted Publishing
+# Governed npm publish. A version-tag push starts the release path; a human can
+# also dispatch it with an existing tag. The pack-smoke gate checks the exact
+# tag's packed artifact before the publish job checks out that tag, verifies the
+# checkout is the tag commit, refuses to publish unless that commit is on `main`,
+# re-runs all five release gates, verifies the package version equals the tag,
+# and publishes via npm Trusted Publishing
 # (OIDC) — no long-lived npm token secret. The first publish of a new package
 # name cannot use OIDC and must be done locally; see docs/release.md.
 name: Publish
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-${{ inputs.tag }}
+  group: publish-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -23,8 +28,15 @@ permissions:
   id-token: write # Required for npm Trusted Publishing (OIDC)
 
 jobs:
+  pack-smoke:
+    name: Pack smoke test
+    uses: ./.github/workflows/pack-smoke.yml
+    with:
+      ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
+
   publish:
     name: Publish to npm
+    needs: pack-smoke
     runs-on: ubuntu-latest
     # Attach required-reviewer protection to this environment in the repository
     # settings so a human must approve every npm publish (see docs/release.md).
@@ -33,7 +45,7 @@ jobs:
     steps:
       - name: Validate tag input
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
             echo "::error::Tag '$TAG' is not a valid vX.Y.Z release tag."
@@ -43,16 +55,21 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify tag commit is on main
+      - name: Verify tag checkout and main ancestry
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           git fetch --no-tags origin main
           TAG_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+            echo "::error::Checked out ${HEAD_SHA}, but tag ${TAG} resolves to ${TAG_SHA}."
+            exit 1
+          fi
           if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
             echo "::error::Tag ${TAG} (${TAG_SHA}) is not an ancestor of main. Only releases merged to main may be published."
             exit 1
@@ -95,7 +112,7 @@ jobs:
 
       - name: Verify package version matches tag
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
           if [ "v${PKG_VERSION}" != "${TAG}" ]; then
