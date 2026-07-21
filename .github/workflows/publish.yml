@@ -34,9 +34,16 @@ jobs:
     with:
       ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
 
+  live-integration:
+    name: Live integration gate
+    # The called workflow checks out this dispatch's ref. Dispatch publish.yml
+    # from main or the release tag ref as documented in docs/release.md.
+    uses: ./.github/workflows/live-integration.yml
+    secrets: inherit
+
   publish:
     name: Publish to npm
-    needs: pack-smoke
+    needs: [pack-smoke, live-integration]
     runs-on: ubuntu-latest
     # Attach required-reviewer protection to this environment in the repository
     # settings so a human must approve every npm publish (see docs/release.md).

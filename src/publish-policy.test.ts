@@ -120,14 +120,14 @@ describe("publish workflow policy", () => {
     const uses = publishWorkflow()
       .split("\n")
       .filter((line) => /^\s+uses:/u.test(line));
-    const localPackSmoke = "uses: ./.github/workflows/pack-smoke.yml";
+    const localReusableWorkflow =
+      /^uses: \.\/\.github\/workflows\/[^\s]+\.yml$/u;
 
     expect(uses.length, "publish must use at least one action").toBeGreaterThan(
       0,
     );
-    expect(uses.map((line) => line.trim())).toContain(localPackSmoke);
     for (const line of uses) {
-      if (line.trim() === localPackSmoke) {
+      if (localReusableWorkflow.test(line.trim())) {
         continue;
       }
       expect(
@@ -135,5 +135,16 @@ describe("publish workflow policy", () => {
         "external actions in publish must be pinned to a 40-hex commit SHA",
       ).toMatch(/uses:\s+\S+@[0-9a-f]{40}(\s+#.*)?$/u);
     }
+  });
+
+  it("requires both packed-artifact and live-integration release gates", () => {
+    const workflow = publishWorkflow();
+
+    expect(workflow).toMatch(
+      /^  live-integration:\s*$[\s\S]*?^    uses:\s*\.\/\.github\/workflows\/live-integration\.yml\s*$[\s\S]*?^    secrets:\s*inherit\s*$/mu,
+    );
+    expect(workflow).toMatch(
+      /^  publish:\s*$[\s\S]*?^    needs:\s*\[pack-smoke, live-integration\]\s*$/mu,
+    );
   });
 });

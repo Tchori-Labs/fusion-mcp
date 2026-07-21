@@ -1,13 +1,16 @@
-# This workflow is intentionally manual-only. It must never be added as a
-# required status check or branch-protection requirement, and neither its
-# workflow nor job may be renamed to "Build & Test".
+# This workflow is the live release gate. Its check should be required for
+# release pull requests, but neither its workflow nor job may be renamed to
+# "Build & Test".
 name: Live integration
 
 on:
   workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [main]
 
 concurrency:
-  group: live-integration
+  group: live-integration-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -23,6 +26,8 @@ jobs:
       FUSION_MCP_LIVE: "1"
       FUSION_BASE_URL: ${{ vars.FUSION_BASE_URL }}
       FUSION_TOKEN: ${{ secrets.FUSION_TOKEN }}
+      FUSION_CF_ACCESS_CLIENT_ID: ${{ vars.FUSION_CF_ACCESS_CLIENT_ID }}
+      FUSION_CF_ACCESS_CLIENT_SECRET: ${{ secrets.FUSION_CF_ACCESS_CLIENT_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -36,28 +41,36 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Check live configuration
+      - name: Gate live configuration
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -z "$FUSION_BASE_URL" ]; then
-            echo "::error::Missing required environment variable FUSION_BASE_URL"
+          if [ -z "$FUSION_BASE_URL" ] || [ -z "$FUSION_TOKEN" ]; then
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              echo "::notice::Live integration skipped: live-integration secrets are unavailable (fork or unconfigured environment)"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::Missing required live-integration configuration: FUSION_BASE_URL and FUSION_TOKEN must both be set"
             exit 1
           fi
-          if [ -z "$FUSION_TOKEN" ]; then
-            echo "::error::Missing required environment secret FUSION_TOKEN"
-            exit 1
-          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        if: steps.gate.outputs.run == 'true'
         run: pnpm build
 
       - name: Run live integration suite
+        if: steps.gate.outputs.run == 'true'
         run: pnpm test:live
 
       - name: Upload redacted failure diagnostics
-        if: failure()
+        if: failure() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: live-integration-redacted-traces

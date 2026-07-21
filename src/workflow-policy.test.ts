@@ -117,22 +117,32 @@ describe("stability workflow policy", () => {
 });
 
 describe("live integration workflow policy", () => {
-  it("is isolated to manual workflow_dispatch runs", () => {
+  it("runs exactly on manual, reusable, and main release-PR paths", () => {
     const workflow = liveWorkflow();
+    const onBlock = workflow.match(/^on:\s*\n([\s\S]*?)^concurrency:/mu)?.[1];
 
-    expect(workflow, "live integration must declare workflow_dispatch").toMatch(
-      /^on:\s*\n\s+workflow_dispatch:\s*$/mu,
+    expect(
+      onBlock,
+      "live integration must have a bounded trigger block",
+    ).toBeDefined();
+    const triggers = [...(onBlock ?? "").matchAll(/^  ([a-z_]+):/gmu)].map(
+      ([, trigger]) => trigger,
+    );
+    expect(triggers).toEqual([
+      "workflow_dispatch",
+      "workflow_call",
+      "pull_request",
+    ]);
+    expect(onBlock, "release pull requests must be restricted to main").toMatch(
+      /^  pull_request:\s*\n\s+branches:\s*\[main\]\s*$/mu,
     );
 
-    const forbiddenTriggers = [
+    for (const trigger of [
       "push",
-      "pull_request",
       "pull_request_target",
       "schedule",
-      "workflow_call",
       "workflow_run",
-    ];
-    for (const trigger of forbiddenTriggers) {
+    ]) {
       expect(
         workflow,
         `live integration must not declare the ${trigger} trigger`,
@@ -172,6 +182,10 @@ describe("live integration workflow policy", () => {
     const baseUrlMappings =
       workflow.match(/^\s+FUSION_BASE_URL:\s*.*$/gmu) ?? [];
     const tokenMappings = workflow.match(/^\s+FUSION_TOKEN:\s*.*$/gmu) ?? [];
+    const cfClientIdMappings =
+      workflow.match(/^\s+FUSION_CF_ACCESS_CLIENT_ID:\s*.*$/gmu) ?? [];
+    const cfClientSecretMappings =
+      workflow.match(/^\s+FUSION_CF_ACCESS_CLIENT_SECRET:\s*.*$/gmu) ?? [];
     expect(
       baseUrlMappings,
       "FUSION_BASE_URL must have exactly one job environment mapping",
@@ -190,6 +204,20 @@ describe("live integration workflow policy", () => {
       tokenMappings[0],
       "FUSION_TOKEN must come from a GitHub environment secret",
     ).toMatch(/^\s+FUSION_TOKEN:\s*\$\{\{\s*secrets\.FUSION_TOKEN\s*\}\}\s*$/u);
+    expect(
+      cfClientIdMappings,
+      "CF Access client id must have exactly one job environment mapping",
+    ).toHaveLength(1);
+    expect(cfClientIdMappings[0]).toMatch(
+      /^\s+FUSION_CF_ACCESS_CLIENT_ID:\s*\$\{\{\s*vars\.FUSION_CF_ACCESS_CLIENT_ID\s*\}\}\s*$/u,
+    );
+    expect(
+      cfClientSecretMappings,
+      "CF Access client secret must have exactly one job environment mapping",
+    ).toHaveLength(1);
+    expect(cfClientSecretMappings[0]).toMatch(
+      /^\s+FUSION_CF_ACCESS_CLIENT_SECRET:\s*\$\{\{\s*secrets\.FUSION_CF_ACCESS_CLIENT_SECRET\s*\}\}\s*$/u,
+    );
     expect(
       workflow,
       "live integration must not hardcode an HTTP base URL",
@@ -215,6 +243,21 @@ describe("live integration workflow policy", () => {
     expect(workflow, "the live token must never be echoed").not.toMatch(
       /\becho\b[^\n]*(?:\$FUSION_TOKEN|\$\{FUSION_TOKEN\}|\$\{\{\s*secrets\.FUSION_TOKEN\s*\}\})/u,
     );
+  });
+
+  it("skips missing configuration only for pull requests", () => {
+    const workflow = liveWorkflow();
+
+    expect(workflow).toContain("EVENT_NAME: ${{ github.event_name }}");
+    expect(workflow).toContain('if [ "$EVENT_NAME" = "pull_request" ]; then');
+    expect(workflow).toContain(
+      "::notice::Live integration skipped: live-integration secrets are unavailable (fork or unconfigured environment)",
+    );
+    expect(workflow).toContain('echo "run=false" >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain(
+      "::error::Missing required live-integration configuration: FUSION_BASE_URL and FUSION_TOKEN must both be set",
+    );
+    expect(workflow).toContain('echo "run=true" >> "$GITHUB_OUTPUT"');
   });
 
   it("preserves default journeys and builds before running them", () => {
@@ -246,7 +289,7 @@ describe("live integration workflow policy", () => {
       expect(
         workflow,
         "live diagnostics must upload only when the job fails",
-      ).toMatch(/^\s+if:\s*failure\(\)\s*$/mu);
+      ).toMatch(/^\s+if:\s*failure\(\)(?:\s*&&.*)?$/mu);
       const artifactPaths = workflow.match(/^\s+path:\s*.*$/gmu) ?? [];
       expect(
         artifactPaths,
@@ -326,7 +369,7 @@ describe("pack smoke workflow policy", () => {
     const publishWorkflow = repositoryFile(".github/workflows/publish.yml");
 
     expect(publishWorkflow).toMatch(
-      /^  publish:\s*$[\s\S]*?^    needs:\s*(?:pack-smoke|\[pack-smoke\])\s*$/mu,
+      /^  publish:\s*$[\s\S]*?^    needs:\s*\[pack-smoke, live-integration\]\s*$/mu,
     );
     expect(publishWorkflow).toMatch(
       /^  pack-smoke:\s*$[\s\S]*?^    uses:\s*\.\/\.github\/workflows\/pack-smoke\.yml\s*$/mu,
