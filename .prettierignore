@@ -1,0 +1,9 @@
+dist/
+coverage/
+stability-results/
+pnpm-lock.yaml
+tool-contract.json
+CHANGELOG.md
+.fusion/
+.worktrees/
+briefs/

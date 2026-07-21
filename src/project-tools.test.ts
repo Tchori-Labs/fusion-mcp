@@ -3,15 +3,12 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseConfig, type Config } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -59,7 +56,9 @@ function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
   return new URL(call[0]);
 }
 
-function requestedMethod(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): string | undefined {
+function requestedMethod(
+  fetchMock: ReturnType<typeof vi.fn<FetchLike>>,
+): string | undefined {
   return fetchMock.mock.calls[0]?.[1]?.method;
 }
 
@@ -102,7 +101,9 @@ describe("project read tools", () => {
         properties: { projectId: { type: "string", minLength: 1 } },
       });
       expect(settingsTool?.inputSchema).not.toHaveProperty("properties.value");
-      expect(settingsTool?.inputSchema).not.toHaveProperty("properties.settings");
+      expect(settingsTool?.inputSchema).not.toHaveProperty(
+        "properties.settings",
+      );
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       await harness.close();
@@ -257,7 +258,9 @@ describe("project read tools", () => {
       fetchMock,
     );
 
-    const error = await client.listProjects().catch((caught: unknown) => caught);
+    const error = await client
+      .listProjects()
+      .catch((caught: unknown) => caught);
     const rendered = `${String(error)} ${JSON.stringify(error)}`;
 
     expect(error).toBeInstanceOf(FusionError);

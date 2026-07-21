@@ -50,7 +50,10 @@ function parseBaseUrl(value: string | undefined): string {
     throw new Error("FUSION_BASE_URL must be a valid HTTP or HTTPS URL");
   }
 
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    !parsed.hostname
+  ) {
     throw new Error("FUSION_BASE_URL must be a valid HTTP or HTTPS URL");
   }
 

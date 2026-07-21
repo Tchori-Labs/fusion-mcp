@@ -10,7 +10,8 @@ const secretMarker = "distinctive-pause-token-marker";
 const unsafeUpstreamMarker = "unsafe-upstream-response-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -140,7 +141,7 @@ describe.each([
     env: Environment;
     arguments: { id: string; projectId?: string };
     expectedProjectId: string;
-  }>) (
+  }>)(
     "posts $label scope in the request body",
     async ({ env, arguments: toolArguments, expectedProjectId }) => {
       const fetchMock = vi
@@ -176,26 +177,29 @@ describe.each([
   it.each([
     { label: "missing", arguments: {} },
     { label: "empty", arguments: { id: "" } },
-  ])("rejects a $label id before fetch", async ({ arguments: toolArguments }) => {
-    const fetchMock = vi.fn<FetchLike>();
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: secretMarker }),
-      fetchMock,
-    );
+  ])(
+    "rejects a $label id before fetch",
+    async ({ arguments: toolArguments }) => {
+      const fetchMock = vi.fn<FetchLike>();
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: secretMarker }),
+        fetchMock,
+      );
 
-    try {
-      const result = await harness.client.callTool({
-        name: tool,
-        arguments: toolArguments,
-      });
+      try {
+        const result = await harness.client.callTool({
+          name: tool,
+          arguments: toolArguments,
+        });
 
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result).toLowerCase()).toContain("id");
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      await harness.close();
-    }
-  });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result).toLowerCase()).toContain("id");
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("surfaces non-2xx failures without upstream content or secrets", async () => {
     const fetchMock = vi

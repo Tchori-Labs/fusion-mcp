@@ -92,7 +92,7 @@ describe("parseConfig", () => {
     );
   });
 
-  it.each(["not a url", "ftp://board.invalid", ""]) (
+  it.each(["not a url", "ftp://board.invalid", ""])(
     "rejects invalid base URL %j",
     (baseUrl) => {
       expect(() => parseConfig({ FUSION_BASE_URL: baseUrl })).toThrow(
@@ -111,9 +111,9 @@ describe("parseConfig", () => {
   it.each(["0", "00", "0080", "-1", "1.5", "abc", ""])(
     "rejects invalid request timeout %j",
     (timeout) => {
-      expect(() =>
-        parseConfig({ FUSION_REQUEST_TIMEOUT_MS: timeout }),
-      ).toThrow("FUSION_REQUEST_TIMEOUT_MS must be a positive integer");
+      expect(() => parseConfig({ FUSION_REQUEST_TIMEOUT_MS: timeout })).toThrow(
+        "FUSION_REQUEST_TIMEOUT_MS must be a positive integer",
+      );
     },
   );
 
@@ -128,9 +128,9 @@ describe("parseConfig", () => {
   );
 
   it("rejects a request timeout above the maximum", () => {
-    expect(() =>
-      parseConfig({ FUSION_REQUEST_TIMEOUT_MS: "65536" }),
-    ).toThrow("FUSION_REQUEST_TIMEOUT_MS must be between 1 and 65535");
+    expect(() => parseConfig({ FUSION_REQUEST_TIMEOUT_MS: "65536" })).toThrow(
+      "FUSION_REQUEST_TIMEOUT_MS must be between 1 and 65535",
+    );
   });
 
   it("does not echo optional configuration in validation errors", () => {

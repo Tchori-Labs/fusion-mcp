@@ -9,7 +9,8 @@ import { buildServer } from "./index.js";
 const secretMarker = "distinctive-fake-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -135,12 +136,10 @@ describe("get_task_workflow_results", () => {
     env: Environment;
     arguments: { id: string; projectId?: string };
     expectedProjectId: string | undefined;
-  }>) (
+  }>)(
     "applies $label scope to the workflow-results request",
     async ({ env, arguments: toolArguments, expectedProjectId }) => {
-      const fetchMock = vi
-        .fn<FetchLike>()
-        .mockResolvedValue(Response.json([]));
+      const fetchMock = vi.fn<FetchLike>().mockResolvedValue(Response.json([]));
       const harness = await createHarness(parseConfig(env), fetchMock);
 
       try {

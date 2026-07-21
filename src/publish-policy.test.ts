@@ -16,10 +16,9 @@ describe("publish workflow policy", () => {
   it("is isolated to manual workflow_dispatch runs", () => {
     const workflow = publishWorkflow();
 
-    expect(
-      workflow,
-      "publish must declare workflow_dispatch",
-    ).toMatch(/^on:\s*\n\s+workflow_dispatch:\s*$/mu);
+    expect(workflow, "publish must declare workflow_dispatch").toMatch(
+      /^on:\s*\n\s+workflow_dispatch:\s*$/mu,
+    );
 
     const forbiddenTriggers = [
       "push",
@@ -40,10 +39,9 @@ describe("publish workflow policy", () => {
   it("holds exactly the read + OIDC permissions and nothing more", () => {
     const workflow = publishWorkflow();
 
-    expect(
-      workflow,
-      "publish must declare contents: read",
-    ).toMatch(/^\s+contents: read$/mu);
+    expect(workflow, "publish must declare contents: read").toMatch(
+      /^\s+contents: read$/mu,
+    );
     expect(
       workflow,
       "publish must declare id-token: write for Trusted Publishing",
@@ -96,7 +94,9 @@ describe("publish workflow policy", () => {
       .split("\n")
       .filter((line) => /^\s+uses:/u.test(line));
 
-    expect(uses.length, "publish must use at least one action").toBeGreaterThan(0);
+    expect(uses.length, "publish must use at least one action").toBeGreaterThan(
+      0,
+    );
     for (const line of uses) {
       expect(
         line,

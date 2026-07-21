@@ -7,7 +7,8 @@ import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -126,9 +127,9 @@ describe("get_board_health", () => {
         systemInfo: { version: "2.0", agents: 3 },
       });
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("authorization")).toBe(
-        false,
-      );
+      expect(
+        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("authorization"),
+      ).toBe(false);
       expect(
         new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization"),
       ).toBe("Bearer test-secret-marker");
@@ -200,8 +201,14 @@ describe("get_board_health", () => {
     const harness = await createHarness(parseConfig({}), fetchMock);
 
     try {
-      await harness.client.callTool({ name: "get_board_health", arguments: {} });
-      await harness.client.callTool({ name: "get_board_health", arguments: {} });
+      await harness.client.callTool({
+        name: "get_board_health",
+        arguments: {},
+      });
+      await harness.client.callTool({
+        name: "get_board_health",
+        arguments: {},
+      });
 
       expect(stderr).toHaveBeenCalledTimes(2);
       for (const call of stderr.mock.calls) {

@@ -1,0 +1,14 @@
+# CodeRabbit configuration — AI review for (mostly agent-written) PRs.
+# Docs: https://docs.coderabbit.ai/reference/yaml-template
+language: en-US
+reviews:
+  profile: assertive
+  high_level_summary: true
+  request_changes_workflow: false
+  auto_review:
+    enabled: true
+    base_branches:
+      - develop
+      - main
+chat:
+  auto_reply: true

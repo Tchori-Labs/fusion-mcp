@@ -3,7 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { createServer } from "node:http";
-import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -20,15 +24,8 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
-import {
-  formatValidationError,
-  withToolErrorEnvelope,
-} from "./tool-error.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
+import { formatValidationError, withToolErrorEnvelope } from "./tool-error.js";
 
 const emptyInputShape = {} satisfies z.ZodRawShape;
 
@@ -131,11 +128,14 @@ const listedTaskSchema = z
 function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
   const result = listedTaskSchema.array().safeParse(data);
   if (!result.success) {
-    throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
-      method: "GET",
-      path: "/api/tasks",
-      kind: "invalid_payload",
-    });
+    throw new FusionError(
+      "Fusion returned an invalid task list: GET /api/tasks",
+      {
+        method: "GET",
+        path: "/api/tasks",
+        kind: "invalid_payload",
+      },
+    );
   }
   return result.data;
 }
@@ -260,7 +260,11 @@ function isToolCall(request: unknown): request is {
     return false;
   }
   const { method, params } = request as { method?: unknown; params?: unknown };
-  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+  if (
+    method !== "tools/call" ||
+    typeof params !== "object" ||
+    params === null
+  ) {
     return false;
   }
   return typeof (params as { name?: unknown }).name === "string";
@@ -329,7 +333,8 @@ export function buildServer(
   options: BuildServerOptions = {},
 ): McpServer {
   const client =
-    options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
+    options.client ??
+    new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.1.3" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
@@ -425,9 +430,7 @@ export function buildServer(
       );
 
       return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: task.data }) },
-        ],
+        content: [{ type: "text", text: JSON.stringify({ task: task.data }) }],
       };
     },
   );
@@ -530,7 +533,9 @@ export function buildServer(
       const effectiveProjectId = projectId ?? config.defaultProjectId;
       auditLog(
         "read_project_settings",
-        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+        effectiveProjectId === undefined
+          ? ""
+          : `projectId=${effectiveProjectId}`,
       );
       const settings = await client.getSettings(effectiveProjectId);
       return {
@@ -852,7 +857,8 @@ export function buildServer(
     governedInputSchemas,
     "move_task",
     {
-      description: "Move a board task to another column (board reprioritisation)",
+      description:
+        "Move a board task to another column (board reprioritisation)",
       inputSchema: moveTaskInputShape,
     },
     async ({ id, column, projectId }) => {
@@ -923,12 +929,16 @@ type HttpSessionRegistry = Map<string, HttpSession>;
 
 const MAX_HTTP_REQUEST_BODY_BYTES = 1_048_576;
 
-async function parseHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+async function parseHttpRequestBody(
+  request: IncomingMessage,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let byteLength = 0;
 
   for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    const buffer = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(chunk as string);
     byteLength += buffer.byteLength;
     if (byteLength > MAX_HTTP_REQUEST_BODY_BYTES) {
       throw new Error("request body too large");
@@ -1191,9 +1201,7 @@ export async function startHttpServer(
         );
       }
 
-      shutdownPromise = Promise.all(
-        [...resources].map(closeSessionResources),
-      )
+      shutdownPromise = Promise.all([...resources].map(closeSessionResources))
         .then(() => stopped)
         .then(() => undefined);
       return shutdownPromise;
@@ -1201,7 +1209,12 @@ export async function startHttpServer(
 
     const handleSignal = (): void => {
       void shutdown().then(() => {
-        (dependencies.setExitCode ?? ((code) => { process.exitCode = code; }))(0);
+        (
+          dependencies.setExitCode ??
+          ((code) => {
+            process.exitCode = code;
+          })
+        )(0);
       });
     };
 
