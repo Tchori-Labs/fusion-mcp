@@ -7,12 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
-
-- A packed-artifact smoke gate now blocks tagged publication until the tarball
-  clean-installs and its installed bin completes an MCP initialize handshake.
-
-## [0.2.0] - 2026-07-21
+## [0.2.0] - 2026-07-22
 
 ### Added
 
@@ -25,6 +20,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `/token|secret|passphrase|credential/i` as `[REDACTED]` before returning the
   settings payload (issue #87).
 - A generated additive tool-contract baseline for the three new tools.
+- A packed-artifact smoke gate now blocks tagged publication until the tarball
+  clean-installs and its installed bin completes an MCP initialize handshake.
 
 ### Changed
 
