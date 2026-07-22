@@ -227,7 +227,7 @@ describe.each([
 });
 
 describe("lifecycle tool governance", () => {
-  it("registers pause and unpause without destructive or system-control tools", async () => {
+  it("registers only the approved archive exception among prohibited names", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -239,7 +239,11 @@ describe("lifecycle tool governance", () => {
 
       expect(names).toContain("pause_task");
       expect(names).toContain("unpause_task");
-      expect(names.filter((name) => prohibited.test(name))).toEqual([]);
+      // archive_task is the sole exception approved by the 2026-07-21
+      // governance-surface expansion recorded in issue #88.
+      expect(names.filter((name) => prohibited.test(name))).toEqual([
+        "archive_task",
+      ]);
 
       for (const name of ["pause_task", "unpause_task"]) {
         const tool = tools.find((candidate) => candidate.name === name);

@@ -20,19 +20,31 @@ These are the reason the project exists in this shape. They are enforced by
 _what tools exist_, not by runtime policy checks:
 
 1. **No merge / approve / publish.** There is no tool to merge a PR, approve a
-   plan, enable auto-merge, or otherwise publish work outside the board. Fusion
-   automatically squash-integrates completed task work into `develop`; that is
-   internal board execution, and this server exposes no tool or workaround to
-   trigger, approve, or publish it. Releasing `develop` to the protected `main`
-   branch requires a human-reviewed PR and version tag; there is no MCP tool for
-   it. Merging release PRs, approving plans, and publishing remain human actions.
-2. **No settings mutation.** Project/instance settings are **read-only** through
-   this server. There is no tool to change settings.
-3. **No destructive task ops.** No delete, no archive, no bulk mutation.
+   plan, directly trigger a merge, or otherwise publish work outside the board.
+   Fusion automatically squash-integrates completed task work into `develop`;
+   that is internal board execution, and this server exposes no tool or
+   workaround to trigger, approve, or publish it. Releasing `develop` to the
+   protected `main` branch requires a human-reviewed PR and version tag; there
+   is no MCP tool for it. Merging release PRs, approving plans, and publishing
+   remain human actions.
+2. **Settings mutation is project-scoped and hard-allowlisted.**
+   `update_project_settings` is the only settings write. It can express only
+   `mergeStrategy`, `mergeConflictStrategy`, `integrationBranch`, `autoMerge`,
+   `pushAfterMerge`, `directMergeCommitStrategy`,
+   `autoArchiveDuplicateTasksEnabled`, `githubTrackingDefaultRepo`, and the
+   strengthen-only `planApprovalMode: "require-all"`. Global settings,
+   provider/model configuration, and every token or secret key are structurally
+   unreachable.
+3. **No destructive task ops.** `archive_task` is permitted as recoverable board
+   hygiene in the same governance class as `move_task`; delete and bulk mutation
+   remain excluded.
 4. **No system control.** No restart, no shutdown, no daemon control.
-5. **Writes are scoped to task creation, task communication, and board
-   reprioritisation only** — create a task, comment, steer, pause, unpause,
-   and move a task between columns (`move_task`). No other mutation exists.
+5. **Writes are scoped to governed board operations only** — task creation and
+   communication; board reprioritisation with `move_task`; task metadata edits
+   through `update_task` (`dependencies`, `priority`, `title`, and `description`
+   only); recoverable board-hygiene archiving through `archive_task`; and the
+   project-settings allowlist in invariant 2 through `update_project_settings`.
+   No other mutation exists.
 6. **Every tool call is audited** to stderr: timestamp, tool name, and a
    secret-free argument summary.
 7. **Secrets never appear in output.** The token comes from the environment only
@@ -103,7 +115,7 @@ fn_<hex>`. The same token authorises the dashboard and the headless
 
 Project- and task-scoped tools accept an optional `projectId`; `get_board_health`
 and `list_projects` are instance-scoped. Write tools remain limited strictly to
-task creation, communication, and board reprioritisation.
+the governed operations in invariants 2, 3, and 5.
 
 | Tool                        | Class | Params (type)                                                                                                                                                                        | Backing endpoint                                                        |
 | --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
@@ -124,9 +136,21 @@ task creation, communication, and board reprioritisation.
 | `list_missions`             | read  | `projectId?: string`, `includeDrafts?: boolean`                                                                                                                                      | `GET /api/missions`                                                     |
 | `get_mission`               | read  | `id: string`, `projectId?: string`                                                                                                                                                   | `GET /api/missions/:id` (+ `/status`, `/health` folded into the result) |
 | `move_task`                 | write | `id: string`, `column: string`, `projectId?: string`                                                                                                                                 | `POST /api/tasks/:id/move`                                              |
+| `update_project_settings`   | write | `settings: object`, `projectId?: string`                                                                                                                                             | `PUT /api/settings` (`projectId` query)                                 |
+| `update_task`               | write | `id: string`, `title?: string`, `description?: string`, `priority?: string`, `dependencies?: string[]`, `projectId?: string`                                                         | `PATCH /api/tasks/:id`                                                  |
+| `archive_task`              | write | `id: string`, `projectId?: string`                                                                                                                                                   | `POST /api/tasks/:id/archive`                                           |
 
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
+
+`update_project_settings` accepts only the hard-allowlisted keys in governance
+invariant 2; any other key is rejected before any request is made, and
+`planApprovalMode` is accepted only with the strengthen-only value `require-all`.
+`update_task` edits only `dependencies`, `priority`, `title`, and `description`.
+`archive_task` is recoverable board hygiene only. The `update_project_settings`
+response masks the complete value of `daemonToken` and any key matching
+`/token|secret|passphrase|credential/i`, including keys nested in objects or
+arrays, as `[REDACTED]` before returning the settings payload.
 
 The approvals and missions tools are strictly read-only: the approval
 _decision_ endpoint and every mission mutation (create/edit/autopilot/
@@ -139,8 +163,8 @@ deliberate governance-surface expansion (2026-07-17).
 `read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`,
 `get_task_workflow_results`, `create_task`, `comment_task`, `steer_task`,
 `pause_task`, `unpause_task`, `list_approvals`, `get_approval`,
-`list_missions`, `get_mission`, and `move_task` are implemented on top of
-`FusionClient`.
+`list_missions`, `get_mission`, `move_task`, `update_project_settings`,
+`update_task`, and `archive_task` are implemented on top of `FusionClient`.
 
 ### Tool contract compatibility
 
@@ -277,7 +301,7 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
     auth-exempt health.
   - `health-tool.test.ts` — end-to-end through an in-memory MCP client/server
     pair (`InMemoryTransport.createLinkedPair()`): asserts the exact implemented
-    17-tool governed set, and the health/system merge with and without a token.
+    20-tool governed set, and the health/system merge with and without a token.
 - **FM tasks** add tests alongside each new tool: projectId scoping, pagination
   edges, input-validation failures, and (FM-003) an integration test that spins
   the HTTP server on an ephemeral port against a mocked Fusion.

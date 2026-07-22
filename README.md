@@ -6,17 +6,18 @@ can run the board: watch it, triage, create tasks, comment on and steer running
 agents, and read logs.
 
 It is **governed by design**: there are deliberately **no** tools or workarounds
-to merge PRs, approve plans, publish work, change settings, delete/archive tasks,
-or restart the system. Fusion's automatic squash integration into `develop` is
-internal board execution, not an MCP merge capability; reviewed `develop` →
-`main` release PRs remain human-only. Writes are limited to task creation,
-communication, and board reprioritisation. Every tool call is audited to stderr.
-See [`SPEC.md`](./SPEC.md) for the full contract.
+to merge PRs, approve plans, publish work, delete tasks, mutate settings outside
+a hard project allowlist, or restart the system. Fusion's automatic squash
+integration into `develop` is internal board execution, not an MCP merge
+capability; reviewed `develop` → `main` release PRs remain human-only. Writes are
+limited to the explicit task operations and project-settings allowlist below.
+Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md) for the full
+contract.
 
-> Status: **the executable scaffold, all read tools, and the governed
-> `create_task`, `comment_task`, `steer_task`, `pause_task`, `unpause_task`, and
-> `move_task` write tools are implemented.** Further work is integrated into
-> `develop` through Fusion's automatic squash integration.
+> Status: **the executable scaffold and all 20 governed tools are implemented,
+> including `update_project_settings`, `update_task`, and `archive_task`.**
+> Further work is integrated into `develop` through Fusion's automatic squash
+> integration.
 
 ## Installation
 
@@ -111,12 +112,15 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results` ·
 `create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task` ·
 `list_approvals` · `get_approval` · `list_missions` · `get_mission` ·
-`move_task` (board reprioritisation only).
+`move_task` · `update_project_settings` · `update_task` · `archive_task`.
 
-`get_task_logs` and `get_task_workflow_results` require `id` and accept optional
-`projectId` for task lookup; `get_task_logs` also accepts pagination bounds.
+The response from `update_project_settings` masks `daemonToken` and every nested
+key matching `/token|secret|passphrase|credential/i` with `[REDACTED]` before
+returning the settings payload. `get_task_logs` and `get_task_workflow_results`
+require `id` and accept optional `projectId` for task lookup; `get_task_logs`
+also accepts pagination bounds.
 
-### Governed task writes
+### Governed writes
 
 - `create_task` requires `description` and accepts only `title`, `column`,
   `priority`, `dependencies`, `workflowId`, `baseBranch`, and `projectId` as
@@ -131,12 +135,24 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
   scope preserves the body-free request.
 - `move_task` requires `id` and `column`, accepts optional `projectId`, and is
   limited to moving a task between board columns for reprioritisation.
+- `update_task` requires `id` plus at least one of `dependencies`, `priority`,
+  `title`, or `description`; no other task field is accepted.
+- `archive_task` requires `id` and is limited to recoverable board-hygiene
+  archiving. Delete and bulk mutation remain unavailable.
+- `update_project_settings` accepts one or more of `mergeStrategy`,
+  `mergeConflictStrategy`, `integrationBranch`, `autoMerge`, `pushAfterMerge`,
+  `directMergeCommitStrategy`, `autoArchiveDuplicateTasksEnabled`,
+  `githubTrackingDefaultRepo`, and the strengthen-only
+  `planApprovalMode: "require-all"`. Any other key is rejected before the request
+  is sent, and the resolved project scope is sent as the `projectId` query
+  parameter on `PUT /api/settings`.
 
 Project- and task-scoped tools take an optional `projectId`; `get_board_health`
 and `list_projects` are instance-scoped. Task-scoped GET requests send resolved
 scope in the query string, while POST requests send it in the body. Write tools
-remain limited to governed task creation, communication, and board
-reprioritisation. Audits contain only safe
+remain limited to the governed operations above: task creation, communication,
+board reprioritisation, task-metadata edits, recoverable archiving, and the
+project-settings allowlist. Audits contain only safe
 metadata selected per tool, such as task or project ids, create-task titles,
 column names, and pagination bounds; full message bodies and tokens are never
 logged. Full parameter and endpoint mapping is in
