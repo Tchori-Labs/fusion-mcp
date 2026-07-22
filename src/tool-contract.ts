@@ -44,6 +44,16 @@ export const SPEC_TOOL_INPUT_PROPERTIES = {
   list_missions: ["projectId", "includeDrafts"],
   get_mission: ["id", "projectId"],
   move_task: ["id", "column", "projectId"],
+  update_project_settings: ["settings", "projectId"],
+  update_task: [
+    "id",
+    "title",
+    "description",
+    "priority",
+    "dependencies",
+    "projectId",
+  ],
+  archive_task: ["id", "projectId"],
 } as const;
 
 export const SPEC_TOOL_CATALOGUE = Object.freeze(

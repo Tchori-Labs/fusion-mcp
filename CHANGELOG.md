@@ -12,6 +12,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A packed-artifact smoke gate now blocks tagged publication until the tarball
   clean-installs and its installed bin completes an MCP initialize handshake.
 
+## [0.2.0] - 2026-07-21
+
+### Added
+
+- Governed `update_project_settings` writes for eight hard-allowlisted project
+  keys plus strengthen-only `planApprovalMode: "require-all"`, with credential
+  redaction applied to upstream response payloads.
+- Governed `update_task` writes limited to dependencies, priority, title, and
+  description, plus recoverable board-hygiene archiving through `archive_task`.
+- `read_project_settings` now masks `daemonToken` and every nested key matching
+  `/token|secret|passphrase|credential/i` as `[REDACTED]` before returning the
+  settings payload (issue #87).
+- A generated additive tool-contract baseline for the three new tools.
+
+### Changed
+
+- Governance invariants now record the approved project-settings, task-metadata,
+  and recoverable archive surfaces while continuing to exclude global settings,
+  provider/model configuration, credential keys, delete, merge, approve, and
+  publish operations.
+
 ## [0.1.3] - 2026-07-19
 
 ### Fixed

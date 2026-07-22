@@ -484,6 +484,9 @@ describe("session-aware Streamable HTTP transport", () => {
         "list_missions",
         "get_mission",
         "move_task",
+        "update_project_settings",
+        "update_task",
+        "archive_task",
       ]);
 
       await client.callTool({ name: "get_board_health", arguments: {} });
