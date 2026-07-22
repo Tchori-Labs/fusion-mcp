@@ -40,6 +40,12 @@ contract check is enforced in CI even though `pnpm contract:check` is not a
 separate workflow step. Run the named contract command locally as an explicit
 release check.
 
+Also verify that the protected `live-integration` environment is reachable and
+hosts at least two projects. Release pull requests into `main` automatically run
+the read-only live lane. See the [live integration runbook](./live-integration.md)
+for environment mappings, authenticated-edge configuration, and fail-closed
+release semantics.
+
 ## 2. Verify the version
 
 Read the `version` field in `package.json` and confirm that the intended tag is
@@ -78,6 +84,13 @@ actual shipped tool catalogue, transports, compatibility behavior, and notable
 documentation or operational changes.
 
 ## 5. Open the release pull request
+
+> **Human operator step — required status check:** in the `main` branch ruleset,
+> add **Run live integration suite** (the `live-integration` job's check name) to
+> the required status checks. Ruleset and repository-setting changes are
+> human-only. This prevents a release pull request from merging while the live
+> lane is red or has not run; agents must document this step but must not attempt
+> it.
 
 Before opening anything, verify and record:
 
@@ -165,14 +178,34 @@ package's publishing settings, add a GitHub Actions trusted publisher bound to:
 
 The repository owner must also open the `npm-publish` environment in the
 repository settings and add a required-reviewer protection rule, so that every
-dispatch of the publish workflow waits for explicit human approval before it can
+run of the publish workflow waits for explicit human approval before it can
 reach the registry.
 
-With that in place, publish a release by dispatching the **Publish** workflow
-(`publish.yml`) with the release tag — for example `v0.1.1` — as its `tag`
-input. The workflow checks out that exact tag, refuses to continue unless the
-tag's commit is an ancestor of `main`, re-runs all five release gates, verifies
-that `package.json`'s version equals the tag, then runs
+With that in place, pushing a version tag such as `v0.1.1` starts the **Publish**
+workflow (`publish.yml`) for that tag. A human can also dispatch the workflow
+with an existing release tag as its `tag` input when a controlled rerun is
+needed. For a manual run, select `main` or, preferably, the release tag itself in
+the workflow's **Use workflow from** ref selector: the reusable live workflow
+checks out the caller's dispatch ref, while the pack-smoke and publish jobs
+independently check out the fully qualified tag input.
+
+Before the publish job can start, **both** release gates must succeed:
+
+1. `pack-smoke` checks out the fully qualified release-tag ref, builds and packs
+   it, installs the tarball into a clean temporary project, boots the installed
+   `fusion-mcp` bin, and asserts a successful MCP `initialize` response over
+   stdio. The same smoke workflow runs on packaging-relevant pull requests.
+2. `live-integration` calls the reusable live workflow on the caller's ref and
+   exercises real transport, multi-project `projectId`, default-project, and
+   optional authenticated-edge journeys. Missing base URL or bearer-token
+   configuration is a hard failure for this tag-triggered and manually
+   dispatched path; the fork-safe, green-with-annotation skip applies only to
+   the `pull_request` trigger.
+
+After both gates pass, the publish job checks out the fully qualified tag ref,
+verifies that `HEAD` is the dereferenced tag commit, refuses to continue unless
+the tag's commit is an ancestor of `main`, re-runs all five release gates,
+verifies that `package.json`'s version equals the tag, then runs
 `npm publish --provenance --access public` authenticated through OIDC. No npm
 token secret is stored, and npm attaches provenance automatically. Because
 trusted publishing only becomes available after the first version exists,

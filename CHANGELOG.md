@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- A packed-artifact smoke gate now blocks tagged publication until the tarball
+  clean-installs and its installed bin completes an MCP initialize handshake.
+
 ## [0.1.3] - 2026-07-19
 
 ### Fixed

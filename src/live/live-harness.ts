@@ -34,6 +34,13 @@ export function liveSkipReason(): string | undefined {
   return unmet.length === 0 ? undefined : unmet.join("; ");
 }
 
+export function edgeCredentialsConfigured(): boolean {
+  return (
+    configuredValue("FUSION_CF_ACCESS_CLIENT_ID") !== undefined &&
+    configuredValue("FUSION_CF_ACCESS_CLIENT_SECRET") !== undefined
+  );
+}
+
 export function describeLive(
   name: string,
   factory: SuiteFactory,
@@ -67,10 +74,19 @@ export function redactToken(
   text: string,
   token = configuredValue("FUSION_TOKEN"),
 ): string {
-  if (token === undefined) {
-    return text;
-  }
-  return text.replaceAll(token, REDACTION_MARKER);
+  const sensitiveValues = [
+    token,
+    configuredValue("FUSION_CF_ACCESS_CLIENT_ID"),
+    configuredValue("FUSION_CF_ACCESS_CLIENT_SECRET"),
+  ]
+    .filter((value): value is string => value !== undefined)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .sort((left, right) => right.length - left.length);
+
+  return sensitiveValues.reduce(
+    (redacted, value) => redacted.replaceAll(value, REDACTION_MARKER),
+    text,
+  );
 }
 
 export async function writeFailureTrace(

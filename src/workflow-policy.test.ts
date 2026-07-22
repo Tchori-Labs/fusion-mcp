@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LIVE_WORKFLOW_PATH = ".github/workflows/live-integration.yml";
+const PACK_SMOKE_WORKFLOW_PATH = ".github/workflows/pack-smoke.yml";
 const STABILITY_WORKFLOW_PATH = ".github/workflows/stability.yml";
 
 function repositoryFile(path: string): string {
@@ -15,6 +16,12 @@ function liveWorkflow(): string {
   const path = `${REPOSITORY_ROOT}/${LIVE_WORKFLOW_PATH}`;
   expect(existsSync(path), `${LIVE_WORKFLOW_PATH} must exist`).toBe(true);
   return repositoryFile(LIVE_WORKFLOW_PATH);
+}
+
+function packSmokeWorkflow(): string {
+  const path = `${REPOSITORY_ROOT}/${PACK_SMOKE_WORKFLOW_PATH}`;
+  expect(existsSync(path), `${PACK_SMOKE_WORKFLOW_PATH} must exist`).toBe(true);
+  return repositoryFile(PACK_SMOKE_WORKFLOW_PATH);
 }
 
 function stabilityWorkflow(): string {
@@ -110,22 +117,32 @@ describe("stability workflow policy", () => {
 });
 
 describe("live integration workflow policy", () => {
-  it("is isolated to manual workflow_dispatch runs", () => {
+  it("runs exactly on manual, reusable, and main release-PR paths", () => {
     const workflow = liveWorkflow();
+    const onBlock = workflow.match(/^on:\s*\n([\s\S]*?)^concurrency:/mu)?.[1];
 
-    expect(workflow, "live integration must declare workflow_dispatch").toMatch(
-      /^on:\s*\n\s+workflow_dispatch:\s*$/mu,
+    expect(
+      onBlock,
+      "live integration must have a bounded trigger block",
+    ).toBeDefined();
+    const triggers = [...(onBlock ?? "").matchAll(/^  ([a-z_]+):/gmu)].map(
+      ([, trigger]) => trigger,
+    );
+    expect(triggers).toEqual([
+      "workflow_dispatch",
+      "workflow_call",
+      "pull_request",
+    ]);
+    expect(onBlock, "release pull requests must be restricted to main").toMatch(
+      /^  pull_request:\s*\n\s+branches:\s*\[main\]\s*$/mu,
     );
 
-    const forbiddenTriggers = [
+    for (const trigger of [
       "push",
-      "pull_request",
       "pull_request_target",
       "schedule",
-      "workflow_call",
       "workflow_run",
-    ];
-    for (const trigger of forbiddenTriggers) {
+    ]) {
       expect(
         workflow,
         `live integration must not declare the ${trigger} trigger`,
@@ -165,6 +182,10 @@ describe("live integration workflow policy", () => {
     const baseUrlMappings =
       workflow.match(/^\s+FUSION_BASE_URL:\s*.*$/gmu) ?? [];
     const tokenMappings = workflow.match(/^\s+FUSION_TOKEN:\s*.*$/gmu) ?? [];
+    const cfClientIdMappings =
+      workflow.match(/^\s+FUSION_CF_ACCESS_CLIENT_ID:\s*.*$/gmu) ?? [];
+    const cfClientSecretMappings =
+      workflow.match(/^\s+FUSION_CF_ACCESS_CLIENT_SECRET:\s*.*$/gmu) ?? [];
     expect(
       baseUrlMappings,
       "FUSION_BASE_URL must have exactly one job environment mapping",
@@ -183,6 +204,20 @@ describe("live integration workflow policy", () => {
       tokenMappings[0],
       "FUSION_TOKEN must come from a GitHub environment secret",
     ).toMatch(/^\s+FUSION_TOKEN:\s*\$\{\{\s*secrets\.FUSION_TOKEN\s*\}\}\s*$/u);
+    expect(
+      cfClientIdMappings,
+      "CF Access client id must have exactly one job environment mapping",
+    ).toHaveLength(1);
+    expect(cfClientIdMappings[0]).toMatch(
+      /^\s+FUSION_CF_ACCESS_CLIENT_ID:\s*\$\{\{\s*vars\.FUSION_CF_ACCESS_CLIENT_ID\s*\}\}\s*$/u,
+    );
+    expect(
+      cfClientSecretMappings,
+      "CF Access client secret must have exactly one job environment mapping",
+    ).toHaveLength(1);
+    expect(cfClientSecretMappings[0]).toMatch(
+      /^\s+FUSION_CF_ACCESS_CLIENT_SECRET:\s*\$\{\{\s*secrets\.FUSION_CF_ACCESS_CLIENT_SECRET\s*\}\}\s*$/u,
+    );
     expect(
       workflow,
       "live integration must not hardcode an HTTP base URL",
@@ -208,6 +243,21 @@ describe("live integration workflow policy", () => {
     expect(workflow, "the live token must never be echoed").not.toMatch(
       /\becho\b[^\n]*(?:\$FUSION_TOKEN|\$\{FUSION_TOKEN\}|\$\{\{\s*secrets\.FUSION_TOKEN\s*\}\})/u,
     );
+  });
+
+  it("skips missing configuration only for pull requests", () => {
+    const workflow = liveWorkflow();
+
+    expect(workflow).toContain("EVENT_NAME: ${{ github.event_name }}");
+    expect(workflow).toContain('if [ "$EVENT_NAME" = "pull_request" ]; then');
+    expect(workflow).toContain(
+      "::notice::Live integration skipped: live-integration secrets are unavailable (fork or unconfigured environment)",
+    );
+    expect(workflow).toContain('echo "run=false" >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain(
+      "::error::Missing required live-integration configuration: FUSION_BASE_URL and FUSION_TOKEN must both be set",
+    );
+    expect(workflow).toContain('echo "run=true" >> "$GITHUB_OUTPUT"');
   });
 
   it("preserves default journeys and builds before running them", () => {
@@ -239,7 +289,7 @@ describe("live integration workflow policy", () => {
       expect(
         workflow,
         "live diagnostics must upload only when the job fails",
-      ).toMatch(/^\s+if:\s*failure\(\)\s*$/mu);
+      ).toMatch(/^\s+if:\s*failure\(\)(?:\s*&&.*)?$/mu);
       const artifactPaths = workflow.match(/^\s+path:\s*.*$/gmu) ?? [];
       expect(
         artifactPaths,
@@ -256,5 +306,95 @@ describe("live integration workflow policy", () => {
         "live diagnostics must never upload the whole workspace",
       ).not.toMatch(/^\s+path:\s*\.(?:\/)?\s*$/mu);
     }
+  });
+});
+
+describe("pack smoke workflow policy", () => {
+  it("is reusable and runs on packaging-relevant pull requests", () => {
+    const workflow = packSmokeWorkflow();
+
+    expect(workflow, "pack smoke must declare workflow_call").toMatch(
+      /^\s+workflow_call:\s*$/mu,
+    );
+    expect(workflow, "pack smoke must declare pull_request").toMatch(
+      /^\s+pull_request:\s*$/mu,
+    );
+    for (const path of [
+      "package.json",
+      "tsconfig.build.json",
+      "src/index.ts",
+    ]) {
+      expect(workflow, `pack smoke paths must include ${path}`).toMatch(
+        new RegExp(`^\\s+- ${path.replace(".", "\\.")}\\s*$`, "mu"),
+      );
+    }
+  });
+
+  it("stays separate from the required Build & Test check", () => {
+    const workflow = packSmokeWorkflow();
+    const requiredWorkflow = repositoryFile(".github/workflows/ci.yml");
+
+    expect(
+      workflow,
+      "pack smoke must not use the required Build & Test job name",
+    ).not.toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(
+      workflow,
+      "pack smoke must not use the required build-and-test job id",
+    ).not.toMatch(/^\s{2}build-and-test:\s*$/mu);
+    expect(
+      requiredWorkflow,
+      "required CI must retain the Build & Test job name",
+    ).toMatch(/^\s+name:\s*Build & Test\s*$/mu);
+    expect(requiredWorkflow).not.toContain("pack-smoke");
+  });
+
+  it("is credential-free and probes initialize on the globbed tarball", () => {
+    const workflow = packSmokeWorkflow();
+    const organizationName = ["Tcho", "ri"].join("").toLowerCase();
+
+    for (const forbiddenValue of ["secrets.", "vars.", "FUSION_TOKEN"]) {
+      expect(
+        workflow,
+        `pack smoke must not contain ${forbiddenValue}`,
+      ).not.toContain(forbiddenValue);
+    }
+    expect(workflow).toContain('"method":"initialize"');
+    expect(workflow).toContain("serverInfo");
+    expect(workflow).toContain('"$RUNNER_TEMP"/pack/*.tgz');
+    expect(workflow.toLowerCase()).not.toContain(organizationName);
+  });
+
+  it("gates publishing with a smoke run against the release tag", () => {
+    const publishWorkflow = repositoryFile(".github/workflows/publish.yml");
+
+    expect(publishWorkflow).toMatch(
+      /^  publish:\s*$[\s\S]*?^    needs:\s*\[pack-smoke, live-integration\]\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^  pack-smoke:\s*$[\s\S]*?^    uses:\s*\.\/\.github\/workflows\/pack-smoke\.yml\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^\s+push:\s*\n\s+tags:\s*\n\s+- ["']v\*["']\s*$/mu,
+    );
+    expect(publishWorkflow).toMatch(
+      /^      ref:\s*\$\{\{\s*format\('refs\/tags\/\{0\}',\s*inputs\.tag \|\| github\.ref_name\)\s*\}\}\s*$/mu,
+    );
+  });
+
+  it("installs, builds, and packs before booting the installed bin", () => {
+    const workflow = packSmokeWorkflow();
+    const installIndex = workflow.indexOf("pnpm install --frozen-lockfile");
+    const buildIndex = workflow.indexOf("pnpm build");
+    const packIndex = workflow.indexOf("pnpm pack --pack-destination");
+    const bootIndex = workflow.indexOf("Boot installed bin and initialize MCP");
+
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(buildIndex).toBeGreaterThan(-1);
+    expect(packIndex).toBeGreaterThan(-1);
+    expect(bootIndex).toBeGreaterThan(-1);
+    expect(installIndex).toBeLessThan(buildIndex);
+    expect(buildIndex).toBeLessThan(packIndex);
+    expect(packIndex).toBeLessThan(bootIndex);
   });
 });
