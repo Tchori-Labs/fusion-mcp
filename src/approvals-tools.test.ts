@@ -9,7 +9,8 @@ import { buildServer } from "./index.js";
 const secretMarker = "distinctive-fake-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 

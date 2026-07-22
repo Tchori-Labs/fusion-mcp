@@ -3,15 +3,12 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseConfig, type Config } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -28,7 +25,7 @@ async function createHarness(config: Config, fetch: FetchLike) {
   };
 }
 
-function textResult(result: unknown): unknown {
+function textContent(result: unknown): string {
   if (
     typeof result !== "object" ||
     result === null ||
@@ -48,7 +45,11 @@ function textResult(result: unknown): unknown {
   ) {
     throw new Error("expected a text tool result");
   }
-  return JSON.parse(content.text) as unknown;
+  return content.text;
+}
+
+function textResult(result: unknown): unknown {
+  return JSON.parse(textContent(result)) as unknown;
 }
 
 function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
@@ -59,7 +60,9 @@ function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
   return new URL(call[0]);
 }
 
-function requestedMethod(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): string | undefined {
+function requestedMethod(
+  fetchMock: ReturnType<typeof vi.fn<FetchLike>>,
+): string | undefined {
   return fetchMock.mock.calls[0]?.[1]?.method;
 }
 
@@ -93,6 +96,9 @@ describe("project read tools", () => {
         "list_missions",
         "get_mission",
         "move_task",
+        "update_project_settings",
+        "update_task",
+        "archive_task",
       ]);
       const settingsTool = tools.tools.find(
         ({ name }) => name === "read_project_settings",
@@ -102,7 +108,9 @@ describe("project read tools", () => {
         properties: { projectId: { type: "string", minLength: 1 } },
       });
       expect(settingsTool?.inputSchema).not.toHaveProperty("properties.value");
-      expect(settingsTool?.inputSchema).not.toHaveProperty("properties.settings");
+      expect(settingsTool?.inputSchema).not.toHaveProperty(
+        "properties.settings",
+      );
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       await harness.close();
@@ -166,6 +174,66 @@ describe("project read tools", () => {
       expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
         "explicit project",
       );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("redacts credential-bearing settings without changing safe settings", async () => {
+    const secretMarkers = [
+      "live-daemon-token-marker",
+      "sync-token-marker",
+      "remote-token-marker",
+      "pass-marker",
+      "secret-marker",
+      "credential-marker",
+    ];
+    const settings = {
+      daemonToken: secretMarkers[0],
+      settingsSync: { authToken: secretMarkers[1] },
+      remoteAccess: {
+        provider: { token: secretMarkers[2], passphrase: secretMarkers[3] },
+      },
+      apiSecret: secretMarkers[4],
+      credentials: { user: secretMarkers[5] },
+      mergeTopology: "squash",
+      trackingRepo: "example/repo",
+    };
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json(settings));
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: "placeholder" }),
+      fetchMock,
+    );
+
+    try {
+      const result = await harness.client.callTool({
+        name: "read_project_settings",
+        arguments: {},
+      });
+      const serialized = textContent(result);
+
+      expect(result.isError).not.toBe(true);
+      for (const marker of secretMarkers) {
+        expect(serialized).not.toContain(marker);
+      }
+      expect(textResult(result)).toEqual({
+        settings: {
+          daemonToken: "[REDACTED]",
+          settingsSync: { authToken: "[REDACTED]" },
+          remoteAccess: {
+            provider: {
+              token: "[REDACTED]",
+              passphrase: "[REDACTED]",
+            },
+          },
+          apiSecret: "[REDACTED]",
+          credentials: "[REDACTED]",
+          mergeTopology: "squash",
+          trackingRepo: "example/repo",
+        },
+      });
     } finally {
       await harness.close();
     }
@@ -257,7 +325,9 @@ describe("project read tools", () => {
       fetchMock,
     );
 
-    const error = await client.listProjects().catch((caught: unknown) => caught);
+    const error = await client
+      .listProjects()
+      .catch((caught: unknown) => caught);
     const rendered = `${String(error)} ${JSON.stringify(error)}`;
 
     expect(error).toBeInstanceOf(FusionError);
@@ -272,12 +342,15 @@ describe("project read tools", () => {
 
   it("audits each tool once to stderr without secrets or stdout output", async () => {
     const secretMarker = "audit-secret-marker";
+    const settingsSecretMarker = "settings-audit-secret-marker";
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     const fetchMock = vi
       .fn<FetchLike>()
       .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(Response.json({ mode: "safe" }));
+      .mockResolvedValueOnce(
+        Response.json({ mode: "safe", daemonToken: settingsSecretMarker }),
+      );
     const harness = await createHarness(
       parseConfig({ FUSION_TOKEN: secretMarker }),
       fetchMock,
@@ -297,7 +370,9 @@ describe("project read tools", () => {
       expect(stderr.mock.calls[1]?.[0]).toMatch(
         /^\[\d{4}-\d{2}-\d{2}T[^\]]+Z\] tool=read_project_settings projectId=project-a\n$/,
       );
-      expect(stderr.mock.calls.flat().join(" ")).not.toContain(secretMarker);
+      const stderrOutput = stderr.mock.calls.flat().join(" ");
+      expect(stderrOutput).not.toContain(secretMarker);
+      expect(stderrOutput).not.toContain(settingsSecretMarker);
       expect(stdout).not.toHaveBeenCalled();
     } finally {
       await harness.close();

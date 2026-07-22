@@ -128,8 +128,8 @@ function statefulTransportHarness() {
     handleRequest: ReturnType<typeof vi.fn>;
     sessionId?: string;
   }> = [];
-  const factory: NonNullable<RuntimeDependencies["httpTransportFactory"]> = vi.fn(
-    (options: StreamableHTTPServerTransportOptions) => {
+  const factory: NonNullable<RuntimeDependencies["httpTransportFactory"]> =
+    vi.fn((options: StreamableHTTPServerTransportOptions) => {
       const close = vi.fn().mockResolvedValue(undefined);
       const state: (typeof transports)[number] = {
         close,
@@ -160,8 +160,7 @@ function statefulTransportHarness() {
       };
       transports.push(state);
       return state as never;
-    },
-  );
+    });
 
   return { factory, transports };
 }
@@ -263,19 +262,27 @@ describe("session-aware Streamable HTTP transport", () => {
       expect(runtime.serverFactory).toHaveBeenCalledOnce();
       expect(runtime.transport.factory).toHaveBeenCalledOnce();
       expect(runtime.bodyParser).toHaveBeenCalledOnce();
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenCalledTimes(4);
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenCalledTimes(4);
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         1,
         expect.anything(),
         expect.anything(),
         initializeRequest,
       );
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         3,
         expect.objectContaining({ method: "GET" }),
         getResponse,
       );
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         4,
         expect.objectContaining({ method: "DELETE" }),
         deleteResponse,
@@ -365,7 +372,10 @@ describe("session-aware Streamable HTTP transport", () => {
       const rejectedResponse = response();
       const foreignRequest = request("POST");
       foreignRequest.headers.host = "attacker.invalid";
-      runtime.http.getListener()(foreignRequest as never, rejectedResponse as never);
+      runtime.http.getListener()(
+        foreignRequest as never,
+        rejectedResponse as never,
+      );
 
       await vi.waitFor(() => expect(rejectedResponse.end).toHaveBeenCalled());
       expect(rejectedResponse.statusCode).toBe(403);
@@ -474,6 +484,9 @@ describe("session-aware Streamable HTTP transport", () => {
         "list_missions",
         "get_mission",
         "move_task",
+        "update_project_settings",
+        "update_task",
+        "archive_task",
       ]);
 
       await client.callTool({ name: "get_board_health", arguments: {} });

@@ -6,8 +6,8 @@
 server that wraps the REST API of **Fusion** — a self-hosted, AI-agent task-board
 product that cuts task worktrees from `develop` and automatically
 squash-integrates completed work back into `develop`. The MCP server lets an MCP
-client (Claude Code, Claude Desktop, or an automation) act as the *operational
-brain* of a Fusion board: watch columns, triage, create and prioritise tasks,
+client (Claude Code, Claude Desktop, or an automation) act as the _operational
+brain_ of a Fusion board: watch columns, triage, create and prioritise tasks,
 comment on and steer running agents, pause/unpause work, and read logs.
 
 It is deliberately a **thin, governed** wrapper. It does not embed board policy,
@@ -17,22 +17,34 @@ the whole surface.
 ## Governance invariants (design invariant — do not weaken)
 
 These are the reason the project exists in this shape. They are enforced by
-*what tools exist*, not by runtime policy checks:
+_what tools exist_, not by runtime policy checks:
 
 1. **No merge / approve / publish.** There is no tool to merge a PR, approve a
-   plan, enable auto-merge, or otherwise publish work outside the board. Fusion
-   automatically squash-integrates completed task work into `develop`; that is
-   internal board execution, and this server exposes no tool or workaround to
-   trigger, approve, or publish it. Releasing `develop` to the protected `main`
-   branch requires a human-reviewed PR and version tag; there is no MCP tool for
-   it. Merging release PRs, approving plans, and publishing remain human actions.
-2. **No settings mutation.** Project/instance settings are **read-only** through
-   this server. There is no tool to change settings.
-3. **No destructive task ops.** No delete, no archive, no bulk mutation.
+   plan, directly trigger a merge, or otherwise publish work outside the board.
+   Fusion automatically squash-integrates completed task work into `develop`;
+   that is internal board execution, and this server exposes no tool or
+   workaround to trigger, approve, or publish it. Releasing `develop` to the
+   protected `main` branch requires a human-reviewed PR and version tag; there
+   is no MCP tool for it. Merging release PRs, approving plans, and publishing
+   remain human actions.
+2. **Settings mutation is project-scoped and hard-allowlisted.**
+   `update_project_settings` is the only settings write. It can express only
+   `mergeStrategy`, `mergeConflictStrategy`, `integrationBranch`, `autoMerge`,
+   `pushAfterMerge`, `directMergeCommitStrategy`,
+   `autoArchiveDuplicateTasksEnabled`, `githubTrackingDefaultRepo`, and the
+   strengthen-only `planApprovalMode: "require-all"`. Global settings,
+   provider/model configuration, and every token or secret key are structurally
+   unreachable.
+3. **No destructive task ops.** `archive_task` is permitted as recoverable board
+   hygiene in the same governance class as `move_task`; delete and bulk mutation
+   remain excluded.
 4. **No system control.** No restart, no shutdown, no daemon control.
-5. **Writes are scoped to task creation, task communication, and board
-   reprioritisation only** — create a task, comment, steer, pause, unpause,
-   and move a task between columns (`move_task`). No other mutation exists.
+5. **Writes are scoped to governed board operations only** — task creation and
+   communication; board reprioritisation with `move_task`; task metadata edits
+   through `update_task` (`dependencies`, `priority`, `title`, and `description`
+   only); recoverable board-hygiene archiving through `archive_task`; and the
+   project-settings allowlist in invariant 2 through `update_project_settings`.
+   No other mutation exists.
 6. **Every tool call is audited** to stderr: timestamp, tool name, and a
    secret-free argument summary.
 7. **Secrets never appear in output.** The token comes from the environment only
@@ -72,7 +84,7 @@ turn the client into a fat SDK.
 ## Auth model
 
 - Fusion uses a single **instance-wide daemon token**: `Authorization: Bearer
-  fn_<hex>`. The same token authorises the dashboard and the headless
+fn_<hex>`. The same token authorises the dashboard and the headless
   `fn daemon`. There is no per-user auth at this layer.
 - `GET /api/health` is **auth-exempt** and is the only endpoint callable without
   a token. Every other endpoint requires the bearer header.
@@ -88,48 +100,61 @@ turn the client into a fat SDK.
 
 ## Configuration (environment)
 
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `FUSION_BASE_URL` | no | `http://127.0.0.1:4040` | Base URL of the Fusion daemon (trailing slash stripped). |
-| `FUSION_TOKEN` | for any non-health call | — | Instance daemon bearer token (`fn_<hex>`). Blank ⇒ treated as unset. |
-| `FUSION_DEFAULT_PROJECT_ID` | no | — | Project applied when a tool omits `projectId`. |
-| `FUSION_CF_ACCESS_CLIENT_ID` | with client secret | — | Service-token client id for an authenticating edge. |
-| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id | — | Service-token client secret for an authenticating edge. |
-| `FUSION_USER_AGENT` | no | — | Overrides the `User-Agent` on upstream board requests. |
-| `PORT` | no | `4141` | HTTP transport listen port (loopback). Ignored in stdio mode. |
-| `FUSION_REQUEST_TIMEOUT_MS` | no | `15000` | Per-request timeout for the Fusion client. |
+| Variable                         | Required                | Default                 | Meaning                                                              |
+| -------------------------------- | ----------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `FUSION_BASE_URL`                | no                      | `http://127.0.0.1:4040` | Base URL of the Fusion daemon (trailing slash stripped).             |
+| `FUSION_TOKEN`                   | for any non-health call | —                       | Instance daemon bearer token (`fn_<hex>`). Blank ⇒ treated as unset. |
+| `FUSION_DEFAULT_PROJECT_ID`      | no                      | —                       | Project applied when a tool omits `projectId`.                       |
+| `FUSION_CF_ACCESS_CLIENT_ID`     | with client secret      | —                       | Service-token client id for an authenticating edge.                  |
+| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id          | —                       | Service-token client secret for an authenticating edge.              |
+| `FUSION_USER_AGENT`              | no                      | —                       | Overrides the `User-Agent` on upstream board requests.               |
+| `PORT`                           | no                      | `4141`                  | HTTP transport listen port (loopback). Ignored in stdio mode.        |
+| `FUSION_REQUEST_TIMEOUT_MS`      | no                      | `15000`                 | Per-request timeout for the Fusion client.                           |
 
 ## Tool catalogue
 
 Project- and task-scoped tools accept an optional `projectId`; `get_board_health`
 and `list_projects` are instance-scoped. Write tools remain limited strictly to
-task creation, communication, and board reprioritisation.
+the governed operations in invariants 2, 3, and 5.
 
-| Tool | Class | Params (type) | Backing endpoint |
-| --- | --- | --- | --- |
-| `get_board_health` | read | *(none)* | `GET /api/health` + `GET /api/system/info` |
-| `list_projects` | read | *(none)* | `GET /api/projects` |
-| `list_tasks` | read | `projectId?: string`, `limit?: number`, `offset?: number`, `q?: string`, `column?: string`, `includeArchived?: boolean` | `GET /api/tasks` |
-| `get_task` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id` |
-| `get_task_logs` | read | `id: string`, `projectId?: string`, `limit?: number`, `offset?: number` | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`) |
-| `get_task_workflow_results` | read | `id: string`, `projectId?: string` | `GET /api/tasks/:id/workflow-results` |
-| `read_project_settings` | read | `projectId?: string` | `GET /api/settings` |
-| `create_task` | write | `description: string` (req), `title?: string`, `column?: string`, `priority?: string`, `dependencies?: string[]`, `workflowId?: string`, `baseBranch?: string`, `projectId?: string` | `POST /api/tasks` |
-| `comment_task` | write | `id: string`, `text: string`, `author?: string`, `projectId?: string` | `POST /api/tasks/:id/comments` |
-| `steer_task` | write | `id: string`, `text: string` (1–2000 chars), `projectId?: string` | `POST /api/tasks/:id/steer` |
-| `pause_task` | write | `id: string`, `projectId?: string` | `POST /api/tasks/:id/pause` |
-| `unpause_task` | write | `id: string`, `projectId?: string` | `POST /api/tasks/:id/unpause` |
-| `list_approvals` | read | `projectId?: string` | `GET /api/approvals` |
-| `get_approval` | read | `id: string`, `projectId?: string` | `GET /api/approvals/:id` |
-| `list_missions` | read | `projectId?: string`, `includeDrafts?: boolean` | `GET /api/missions` |
-| `get_mission` | read | `id: string`, `projectId?: string` | `GET /api/missions/:id` (+ `/status`, `/health` folded into the result) |
-| `move_task` | write | `id: string`, `column: string`, `projectId?: string` | `POST /api/tasks/:id/move` |
+| Tool                        | Class | Params (type)                                                                                                                                                                        | Backing endpoint                                                        |
+| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `get_board_health`          | read  | _(none)_                                                                                                                                                                             | `GET /api/health` + `GET /api/system/info`                              |
+| `list_projects`             | read  | _(none)_                                                                                                                                                                             | `GET /api/projects`                                                     |
+| `list_tasks`                | read  | `projectId?: string`, `limit?: number`, `offset?: number`, `q?: string`, `column?: string`, `includeArchived?: boolean`                                                              | `GET /api/tasks`                                                        |
+| `get_task`                  | read  | `id: string`, `projectId?: string`                                                                                                                                                   | `GET /api/tasks/:id`                                                    |
+| `get_task_logs`             | read  | `id: string`, `projectId?: string`, `limit?: number`, `offset?: number`                                                                                                              | `GET /api/tasks/:id/logs` (reads `X-Total-Count` / `X-Has-More`)        |
+| `get_task_workflow_results` | read  | `id: string`, `projectId?: string`                                                                                                                                                   | `GET /api/tasks/:id/workflow-results`                                   |
+| `read_project_settings`     | read  | `projectId?: string`                                                                                                                                                                 | `GET /api/settings`                                                     |
+| `create_task`               | write | `description: string` (req), `title?: string`, `column?: string`, `priority?: string`, `dependencies?: string[]`, `workflowId?: string`, `baseBranch?: string`, `projectId?: string` | `POST /api/tasks`                                                       |
+| `comment_task`              | write | `id: string`, `text: string`, `author?: string`, `projectId?: string`                                                                                                                | `POST /api/tasks/:id/comments`                                          |
+| `steer_task`                | write | `id: string`, `text: string` (1–2000 chars), `projectId?: string`                                                                                                                    | `POST /api/tasks/:id/steer`                                             |
+| `pause_task`                | write | `id: string`, `projectId?: string`                                                                                                                                                   | `POST /api/tasks/:id/pause`                                             |
+| `unpause_task`              | write | `id: string`, `projectId?: string`                                                                                                                                                   | `POST /api/tasks/:id/unpause`                                           |
+| `list_approvals`            | read  | `projectId?: string`                                                                                                                                                                 | `GET /api/approvals`                                                    |
+| `get_approval`              | read  | `id: string`, `projectId?: string`                                                                                                                                                   | `GET /api/approvals/:id`                                                |
+| `list_missions`             | read  | `projectId?: string`, `includeDrafts?: boolean`                                                                                                                                      | `GET /api/missions`                                                     |
+| `get_mission`               | read  | `id: string`, `projectId?: string`                                                                                                                                                   | `GET /api/missions/:id` (+ `/status`, `/health` folded into the result) |
+| `move_task`                 | write | `id: string`, `column: string`, `projectId?: string`                                                                                                                                 | `POST /api/tasks/:id/move`                                              |
+| `update_project_settings`   | write | `settings: object`, `projectId?: string`                                                                                                                                             | `PUT /api/settings` (`projectId` query)                                 |
+| `update_task`               | write | `id: string`, `title?: string`, `description?: string`, `priority?: string`, `dependencies?: string[]`, `projectId?: string`                                                         | `PATCH /api/tasks/:id`                                                  |
+| `archive_task`              | write | `id: string`, `projectId?: string`                                                                                                                                                   | `POST /api/tasks/:id/archive`                                           |
 
 `create_task` exposes only the safe parameter subset above; other fields the
 Fusion API may accept are intentionally not surfaced.
 
+`update_project_settings` accepts only the hard-allowlisted keys in governance
+invariant 2; any other key is rejected before any request is made, and
+`planApprovalMode` is accepted only with the strengthen-only value `require-all`.
+`update_task` edits only `dependencies`, `priority`, `title`, and `description`.
+`archive_task` is recoverable board hygiene only. Both the
+`read_project_settings` payload and the `update_project_settings` response mask
+the complete value of `daemonToken` and any key matching
+`/token|secret|passphrase|credential/i`, including keys nested in objects or
+arrays, as `[REDACTED]` before returning the settings payload.
+
 The approvals and missions tools are strictly read-only: the approval
-*decision* endpoint and every mission mutation (create/edit/autopilot/
+_decision_ endpoint and every mission mutation (create/edit/autopilot/
 planning-start) are deliberately not wrapped — deciding and steering the
 hierarchy stay human. `move_task` is the one write beyond
 creation/communication: board reprioritisation only, approved as a
@@ -139,8 +164,8 @@ deliberate governance-surface expansion (2026-07-17).
 `read_project_settings`, `list_tasks`, `get_task`, `get_task_logs`,
 `get_task_workflow_results`, `create_task`, `comment_task`, `steer_task`,
 `pause_task`, `unpause_task`, `list_approvals`, `get_approval`,
-`list_missions`, `get_mission`, and `move_task` are implemented on top of
-`FusionClient`.
+`list_missions`, `get_mission`, `move_task`, `update_project_settings`,
+`update_task`, and `archive_task` are implemented on top of `FusionClient`.
 
 ### Tool contract compatibility
 
@@ -183,14 +208,14 @@ a fixed safe message. Successful tool result shapes are unaffected.
 
 The exhaustive stable error codes are:
 
-| Code | Meaning |
-| --- | --- |
-| `validation` | Tool arguments did not satisfy the tool's input schema. |
-| `missing_token` | An authenticated operation was called without a configured token. |
-| `upstream_error` | Fusion returned a non-success status or the request failed at the transport layer. |
-| `timeout` | The request exceeded the configured upstream timeout. |
+| Code                       | Meaning                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `validation`               | Tool arguments did not satisfy the tool's input schema.                                    |
+| `missing_token`            | An authenticated operation was called without a configured token.                          |
+| `upstream_error`           | Fusion returned a non-success status or the request failed at the transport layer.         |
+| `timeout`                  | The request exceeded the configured upstream timeout.                                      |
 | `invalid_upstream_payload` | Fusion returned a success response whose payload could not be safely decoded or validated. |
-| `internal` | An unexpected internal failure occurred; its message is deliberately generic. |
+| `internal`                 | An unexpected internal failure occurred; its message is deliberately generic.              |
 
 All six codes and their meanings are part of a public, compatibility-sensitive
 contract. Removing or renaming a code, or changing its meaning, is a breaking
@@ -277,7 +302,7 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
     auth-exempt health.
   - `health-tool.test.ts` — end-to-end through an in-memory MCP client/server
     pair (`InMemoryTransport.createLinkedPair()`): asserts the exact implemented
-    17-tool governed set, and the health/system merge with and without a token.
+    20-tool governed set, and the health/system merge with and without a token.
 - **FM tasks** add tests alongside each new tool: projectId scoping, pagination
   edges, input-validation failures, and (FM-003) an integration test that spins
   the HTTP server on an ephemeral port against a mocked Fusion.

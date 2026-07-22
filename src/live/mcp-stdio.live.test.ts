@@ -33,6 +33,9 @@ const expectedTools = [
   "list_missions",
   "get_mission",
   "move_task",
+  "update_project_settings",
+  "update_task",
+  "archive_task",
 ];
 
 interface StdioProcessInternals {
@@ -46,10 +49,14 @@ class CapturingStdioClientTransport extends StdioClientTransport {
     await super.start();
     const child = (this as unknown as StdioProcessInternals)._process;
     if (child?.stdout === null || child?.stdout === undefined) {
-      throw new Error("stdio transport did not expose the spawned server stdout");
+      throw new Error(
+        "stdio transport did not expose the spawned server stdout",
+      );
     }
     child.stdout.on("data", (chunk: Buffer | string) => {
-      this.stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      this.stdoutChunks.push(
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+      );
     });
   }
 
@@ -92,7 +99,9 @@ function parseHealthResult(result: unknown): unknown {
 }
 
 function safeError(error: unknown): string {
-  return redactToken(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  return redactToken(
+    error instanceof Error ? (error.stack ?? error.message) : String(error),
+  );
 }
 
 describeLive("live MCP stdio transport", () => {
@@ -100,7 +109,9 @@ describeLive("live MCP stdio transport", () => {
     try {
       await access(serverEntryPoint);
     } catch {
-      throw new Error("dist/index.js is missing; run `pnpm build` before `pnpm test:live`");
+      throw new Error(
+        "dist/index.js is missing; run `pnpm build` before `pnpm test:live`",
+      );
     }
     const token = process.env.FUSION_TOKEN;
     if (token === undefined || token.trim() === "") {
@@ -118,8 +129,12 @@ describeLive("live MCP stdio transport", () => {
       transport.stderr?.on("data", (chunk: Buffer | string) => {
         stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
-      const capturedStderr = (): string => Buffer.concat(stderrChunks).toString("utf8");
-      const client = new Client({ name: "fusion-mcp-live-stdio", version: "1.0.0" });
+      const capturedStderr = (): string =>
+        Buffer.concat(stderrChunks).toString("utf8");
+      const client = new Client({
+        name: "fusion-mcp-live-stdio",
+        version: "1.0.0",
+      });
       let failure: unknown;
 
       try {
@@ -140,10 +155,14 @@ describeLive("live MCP stdio transport", () => {
         const stdout = transport.capturedStdout();
         const stderr = capturedStderr();
         if (stdout.includes("tool=")) {
-          throw new Error("audit or diagnostic output appeared on stdio stdout");
+          throw new Error(
+            "audit or diagnostic output appeared on stdio stdout",
+          );
         }
         if (!stderr.includes("tool=get_board_health")) {
-          throw new Error("get_board_health audit line was absent from stdio stderr");
+          throw new Error(
+            "get_board_health audit line was absent from stdio stderr",
+          );
         }
         assertTokenAbsent("stdio stdout", stdout, token);
         assertTokenAbsent("stdio stderr", stderr, token);

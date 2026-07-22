@@ -8,12 +8,12 @@
 
 ## Summary
 
-| Area | Disposition |
-| --- | --- |
-| Governed tool surface and structural exclusions | **PASS** |
-| Schemas, errors, audit, redaction, scoping, and limits | **PASS** |
-| Mandatory gates and network hermeticity | **PASS** |
-| README setup, stdio smoke, and HTTP smoke | **PASS** |
+| Area                                                   | Disposition |
+| ------------------------------------------------------ | ----------- |
+| Governed tool surface and structural exclusions        | **PASS**    |
+| Schemas, errors, audit, redaction, scoping, and limits | **PASS**    |
+| Mandatory gates and network hermeticity                | **PASS**    |
+| README setup, stdio smoke, and HTTP smoke              | **PASS**    |
 
 Two low-severity documentation discrepancies were corrected during the audit in
 `9c4440683fea75d9e3c37a636947cc3a87d48f5e`. No runtime defect or larger
@@ -91,14 +91,14 @@ behavior.
 
 ## 3. Mandatory gates and hermeticity — PASS
 
-| Command | Outcome |
-| --- | --- |
+| Command                          | Outcome                                 |
+| -------------------------------- | --------------------------------------- |
 | `pnpm install --frozen-lockfile` | exit 0 on Node v22.23.1; `.nvmrc` is 22 |
-| `pnpm lint` | exit 0 |
-| `pnpm typecheck` | exit 0 |
-| `pnpm test` | exit 0; 22 files, 241 tests |
-| `pnpm build` | exit 0 |
-| `pnpm contract:check` | exit 0; 29 tests |
+| `pnpm lint`                      | exit 0                                  |
+| `pnpm typecheck`                 | exit 0                                  |
+| `pnpm test`                      | exit 0; 22 files, 241 tests             |
+| `pnpm build`                     | exit 0                                  |
+| `pnpm contract:check`            | exit 0; 29 tests                        |
 
 The mandatory test was run once on the audited tree and again after documentation
 fixes; both runs passed 241/241. `vitest.config.ts:3-11` unconditionally loads
@@ -150,11 +150,11 @@ suite.
 
 ## Findings
 
-| Severity | Finding | Disposition |
-| --- | --- | --- |
-| Low | `SPEC.md` described the exact health-tool regression as an obsolete two-tool list. | **Fixed here**: now describes the implemented 17-tool assertion. |
-| Low | README claimed project identifiers never appear in audits, while the settings-read audit intentionally records its non-sensitive resolved identifier. | **Fixed here**: wording now matches the specification and tests. |
-| — | No runtime, governance, security, or larger unrelated gap was found. | **Accepted**; no follow-up task required. |
+| Severity | Finding                                                                                                                                               | Disposition                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Low      | `SPEC.md` described the exact health-tool regression as an obsolete two-tool list.                                                                    | **Fixed here**: now describes the implemented 17-tool assertion. |
+| Low      | README claimed project identifiers never appear in audits, while the settings-read audit intentionally records its non-sensitive resolved identifier. | **Fixed here**: wording now matches the specification and tests. |
+| —        | No runtime, governance, security, or larger unrelated gap was found.                                                                                  | **Accepted**; no follow-up task required.                        |
 
 ## Recommendation
 

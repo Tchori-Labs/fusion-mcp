@@ -41,6 +41,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Knip (dead code / unused deps)
+        run: pnpm knip
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -49,3 +55,34 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Package checks (publint + pack smoke)
+        run: pnpm pkgcheck
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Semgrep scan
+        run: semgrep scan --error --config p/typescript --config p/security-audit
+
+  secrets-scan:
+    name: TruffleHog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --results=verified,unknown

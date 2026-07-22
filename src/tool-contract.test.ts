@@ -48,7 +48,10 @@ function replaceSchema(
   };
 }
 
-function settingsSchema(propertySchema: JsonSchema, required = false): JsonSchema {
+function settingsSchema(
+  propertySchema: JsonSchema,
+  required = false,
+): JsonSchema {
   return {
     type: "object",
     properties: { projectId: propertySchema },
@@ -155,11 +158,13 @@ describe("committed tool contract", () => {
     expect(
       result.breaking.filter(({ kind }) => kind.startsWith("ungoverned-")),
     ).toEqual([]);
-    expect(liveManifest.tools.every((tool) =>
-      SPEC_TOOL_CATALOGUE.includes(
-        tool.name as (typeof SPEC_TOOL_CATALOGUE)[number],
+    expect(
+      liveManifest.tools.every((tool) =>
+        SPEC_TOOL_CATALOGUE.includes(
+          tool.name as (typeof SPEC_TOOL_CATALOGUE)[number],
+        ),
       ),
-    )).toBe(true);
+    ).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -191,7 +196,9 @@ describe("diffToolContract compatible additions", () => {
     const result = diffToolContract(baseline, candidate);
 
     expect(result.compatible).toBe(true);
-    expect(result.additive.map((entry) => entry.kind)).toContain("property-added");
+    expect(result.additive.map((entry) => entry.kind)).toContain(
+      "property-added",
+    );
   });
 
   it("accepts a loosened constraint", () => {
@@ -233,7 +240,9 @@ describe("diffToolContract compatible additions", () => {
   it("accepts a new tool from the SPEC catalogue", () => {
     const baseline: ToolContractManifest = {
       ...committedManifest,
-      tools: committedManifest.tools.filter(({ name }) => name !== "create_task"),
+      tools: committedManifest.tools.filter(
+        ({ name }) => name !== "create_task",
+      ),
     };
 
     const result = diffToolContract(baseline, committedManifest);
@@ -311,10 +320,14 @@ describe("diffToolContract breaking changes", () => {
   });
 
   it("rejects a removed accepted property", () => {
-    const candidate = replaceSchema(committedManifest, "read_project_settings", {
-      type: "object",
-      properties: {},
-    });
+    const candidate = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      {
+        type: "object",
+        properties: {},
+      },
+    );
 
     expectBreaking(committedManifest, candidate, "property-removed");
   });
@@ -331,7 +344,11 @@ describe("diffToolContract breaking changes", () => {
 
   it.each([
     ["type", { type: "number", minLength: 1 }, "type-changed"],
-    ["format", { type: "string", minLength: 1, format: "uuid" }, "format-changed"],
+    [
+      "format",
+      { type: "string", minLength: 1, format: "uuid" },
+      "format-changed",
+    ],
   ])("rejects a property %s change", (_label, propertySchema, kind) => {
     const candidate = replaceSchema(
       committedManifest,
@@ -398,13 +415,17 @@ describe("diffToolContract breaking changes", () => {
   });
 
   it("rejects an input property not governed for its tool", () => {
-    const candidate = replaceSchema(committedManifest, "read_project_settings", {
-      type: "object",
-      properties: {
-        projectId: { type: "string", minLength: 1 },
-        region: { type: "string" },
+    const candidate = replaceSchema(
+      committedManifest,
+      "read_project_settings",
+      {
+        type: "object",
+        properties: {
+          projectId: { type: "string", minLength: 1 },
+          region: { type: "string" },
+        },
       },
-    });
+    );
 
     expectBreaking(committedManifest, candidate, "ungoverned-property");
   });

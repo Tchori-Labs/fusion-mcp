@@ -9,7 +9,8 @@ import { buildServer } from "./index.js";
 const secretMarker = "distinctive-fake-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -142,7 +143,7 @@ describe("get_task_logs", () => {
     env: Environment;
     arguments: { id: string; projectId?: string };
     expectedProjectId: string | undefined;
-  }>) (
+  }>)(
     "applies $label scope to the logs request",
     async ({ env, arguments: toolArguments, expectedProjectId }) => {
       const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
@@ -217,7 +218,9 @@ describe("get_task_logs", () => {
   ])("returns %s without error", async (_name, offset) => {
     const fetchMock = vi
       .fn<FetchLike>()
-      .mockResolvedValue(Response.json([], { headers: { "X-Total-Count": "0" } }));
+      .mockResolvedValue(
+        Response.json([], { headers: { "X-Total-Count": "0" } }),
+      );
     const harness = await createHarness(
       parseConfig({ FUSION_TOKEN: secretMarker }),
       fetchMock,

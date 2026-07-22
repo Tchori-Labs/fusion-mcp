@@ -111,9 +111,7 @@ describe("mode selection", () => {
     expect(() => selectMode(["--stdio", "--http"])).toThrow(
       "--stdio and --http cannot be used together",
     );
-    expect(() => selectMode(["--other"])).toThrow(
-      "unknown argument: --other",
-    );
+    expect(() => selectMode(["--other"])).toThrow("unknown argument: --other");
     expect(() => selectMode(["--stdio", "--other"])).toThrow(
       "unknown argument: --other",
     );

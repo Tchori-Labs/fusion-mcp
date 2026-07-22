@@ -3,7 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { createServer } from "node:http";
-import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -20,15 +24,9 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
-import {
-  formatValidationError,
-  withToolErrorEnvelope,
-} from "./tool-error.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
+import { redactSettings } from "./redact-settings.js";
+import { formatValidationError, withToolErrorEnvelope } from "./tool-error.js";
 
 const emptyInputShape = {} satisfies z.ZodRawShape;
 
@@ -81,6 +79,42 @@ const readProjectSettingsInputShape = {
   projectId: z.string().min(1).optional(),
 } satisfies z.ZodRawShape;
 
+export const updateProjectSettingsSchema = z
+  .strictObject({
+    mergeStrategy: z.string().min(1).max(500).optional(),
+    mergeConflictStrategy: z.string().min(1).max(500).optional(),
+    directMergeCommitStrategy: z.string().min(1).max(500).optional(),
+    integrationBranch: z.string().min(1).max(500).optional(),
+    githubTrackingDefaultRepo: z.string().min(1).max(500).optional(),
+    autoMerge: z.boolean().optional(),
+    pushAfterMerge: z.boolean().optional(),
+    autoArchiveDuplicateTasksEnabled: z.boolean().optional(),
+    planApprovalMode: z.literal("require-all").optional(),
+  })
+  .refine((settings) => Object.keys(settings).length > 0);
+
+const updateProjectSettingsInputShape = {
+  settings: updateProjectSettingsSchema,
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
+
+const updateTaskInputSchema = z
+  .object({
+    id: z.string().min(1, "id is required"),
+    title: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+    priority: z.string().min(1).optional(),
+    dependencies: z.array(z.string().min(1)).optional(),
+    projectId: z.string().min(1).optional(),
+  })
+  .refine(
+    ({ title, description, priority, dependencies }) =>
+      title !== undefined ||
+      description !== undefined ||
+      priority !== undefined ||
+      dependencies !== undefined,
+  );
+
 const createTaskInputShape = {
   description: z.string().min(1, "description is required"),
   title: z.string().optional(),
@@ -110,6 +144,11 @@ const taskLifecycleInputShape = {
   projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
+const archiveTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
+
 const moveTaskInputShape = {
   id: z.string().min(1, "id is required"),
   column: z.string().min(1, "column is required"),
@@ -131,11 +170,14 @@ const listedTaskSchema = z
 function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
   const result = listedTaskSchema.array().safeParse(data);
   if (!result.success) {
-    throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
-      method: "GET",
-      path: "/api/tasks",
-      kind: "invalid_payload",
-    });
+    throw new FusionError(
+      "Fusion returned an invalid task list: GET /api/tasks",
+      {
+        method: "GET",
+        path: "/api/tasks",
+        kind: "invalid_payload",
+      },
+    );
   }
   return result.data;
 }
@@ -260,7 +302,11 @@ function isToolCall(request: unknown): request is {
     return false;
   }
   const { method, params } = request as { method?: unknown; params?: unknown };
-  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+  if (
+    method !== "tools/call" ||
+    typeof params !== "object" ||
+    params === null
+  ) {
     return false;
   }
   return typeof (params as { name?: unknown }).name === "string";
@@ -306,21 +352,26 @@ function normalizeInvalidToolCalls(
   };
 }
 
-function registerGovernedTool<InputShape extends z.ZodRawShape>(
+function registerGovernedTool<InputSchema extends z.ZodRawShape | z.ZodType>(
   server: McpServer,
   inputSchemas: GovernedInputSchemas,
   name: string,
-  config: { description: string; inputSchema: InputShape },
-  handler: ToolCallback<InputShape>,
+  config: { description: string; inputSchema: InputSchema },
+  handler: ToolCallback<InputSchema>,
 ): void {
-  inputSchemas.set(name, {
-    schema: z.object(config.inputSchema),
-    allowedPathSegments: new Set(Object.keys(config.inputSchema)),
-  });
+  const schema =
+    config.inputSchema instanceof z.ZodType
+      ? config.inputSchema
+      : z.object(config.inputSchema);
+  const allowedPathSegments =
+    schema instanceof z.ZodObject
+      ? new Set(Object.keys(schema.shape))
+      : new Set<string>();
+  inputSchemas.set(name, { schema, allowedPathSegments });
   server.registerTool(
     name,
     config,
-    withToolErrorEnvelope(handler) as ToolCallback<InputShape>,
+    withToolErrorEnvelope(handler) as ToolCallback<InputSchema>,
   );
 }
 
@@ -329,8 +380,9 @@ export function buildServer(
   options: BuildServerOptions = {},
 ): McpServer {
   const client =
-    options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
-  const server = new McpServer({ name: "fusion-mcp", version: "0.1.3" });
+    options.client ??
+    new FusionClient(config, options.fetch ?? globalThis.fetch);
+  const server = new McpServer({ name: "fusion-mcp", version: "0.2.0" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
 
@@ -425,9 +477,7 @@ export function buildServer(
       );
 
       return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: task.data }) },
-        ],
+        content: [{ type: "text", text: JSON.stringify({ task: task.data }) }],
       };
     },
   );
@@ -530,12 +580,17 @@ export function buildServer(
       const effectiveProjectId = projectId ?? config.defaultProjectId;
       auditLog(
         "read_project_settings",
-        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+        effectiveProjectId === undefined
+          ? ""
+          : `projectId=${effectiveProjectId}`,
       );
       const settings = await client.getSettings(effectiveProjectId);
       return {
         content: [
-          { type: "text", text: JSON.stringify({ settings: settings.data }) },
+          {
+            type: "text",
+            text: JSON.stringify({ settings: redactSettings(settings.data) }),
+          },
         ],
       };
     },
@@ -852,7 +907,8 @@ export function buildServer(
     governedInputSchemas,
     "move_task",
     {
-      description: "Move a board task to another column (board reprioritisation)",
+      description:
+        "Move a board task to another column (board reprioritisation)",
       inputSchema: moveTaskInputShape,
     },
     async ({ id, column, projectId }) => {
@@ -872,6 +928,169 @@ export function buildServer(
               : { projectId: resolvedProjectId }),
           },
         },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "update_project_settings",
+    {
+      description:
+        "Update project settings. Allowed keys: autoArchiveDuplicateTasksEnabled, autoMerge, directMergeCommitStrategy, githubTrackingDefaultRepo, integrationBranch, mergeConflictStrategy, mergeStrategy, planApprovalMode (require-all only), pushAfterMerge",
+      inputSchema: updateProjectSettingsInputShape,
+    },
+    async ({ settings, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      if (resolvedProjectId === undefined) {
+        auditLog("update_project_settings", "validation=failed");
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: {
+                  code: "validation",
+                  message: "Invalid tool arguments",
+                  details: [
+                    {
+                      path: ["projectId"],
+                      message:
+                        "projectId is required when FUSION_DEFAULT_PROJECT_ID is not configured",
+                    },
+                  ],
+                },
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const body = {
+        ...(settings.mergeStrategy === undefined
+          ? {}
+          : { mergeStrategy: settings.mergeStrategy }),
+        ...(settings.mergeConflictStrategy === undefined
+          ? {}
+          : { mergeConflictStrategy: settings.mergeConflictStrategy }),
+        ...(settings.directMergeCommitStrategy === undefined
+          ? {}
+          : { directMergeCommitStrategy: settings.directMergeCommitStrategy }),
+        ...(settings.integrationBranch === undefined
+          ? {}
+          : { integrationBranch: settings.integrationBranch }),
+        ...(settings.githubTrackingDefaultRepo === undefined
+          ? {}
+          : { githubTrackingDefaultRepo: settings.githubTrackingDefaultRepo }),
+        ...(settings.autoMerge === undefined
+          ? {}
+          : { autoMerge: settings.autoMerge }),
+        ...(settings.pushAfterMerge === undefined
+          ? {}
+          : { pushAfterMerge: settings.pushAfterMerge }),
+        ...(settings.autoArchiveDuplicateTasksEnabled === undefined
+          ? {}
+          : {
+              autoArchiveDuplicateTasksEnabled:
+                settings.autoArchiveDuplicateTasksEnabled,
+            }),
+        ...(settings.planApprovalMode === undefined
+          ? {}
+          : { planApprovalMode: settings.planApprovalMode }),
+      };
+      const keys = Object.keys(body).sort().join(",");
+      auditLog(
+        "update_project_settings",
+        `projectIdApplied=${resolvedProjectId !== undefined} keys=${keys}`,
+      );
+      const response = await client.request<unknown>("PUT", "/api/settings", {
+        query: { projectId: resolvedProjectId },
+        body,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ settings: redactSettings(response.data) }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "update_task",
+    {
+      description:
+        "Update task dependencies, priority, title, or description only",
+      inputSchema: updateTaskInputSchema,
+    },
+    async ({ id, title, description, priority, dependencies, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      const body = {
+        ...(title === undefined ? {} : { title }),
+        ...(description === undefined ? {} : { description }),
+        ...(priority === undefined ? {} : { priority }),
+        ...(dependencies === undefined ? {} : { dependencies }),
+      };
+      const fields = [
+        title === undefined ? undefined : "title",
+        description === undefined ? undefined : "description",
+        priority === undefined ? undefined : "priority",
+        dependencies === undefined ? undefined : "dependencies",
+      ]
+        .filter((field): field is string => field !== undefined)
+        .sort()
+        .join(",");
+      auditLog(
+        "update_task",
+        `id=${id} fields=${fields} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "PATCH",
+        `/api/tasks/${encodeURIComponent(id)}`,
+        {
+          query: { projectId: resolvedProjectId },
+          body,
+        },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "archive_task",
+    {
+      description: "Archive a board task as recoverable board hygiene",
+      inputSchema: archiveTaskInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "archive_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/archive`,
+        { query: { projectId: resolvedProjectId } },
       );
 
       return {
@@ -923,12 +1142,16 @@ type HttpSessionRegistry = Map<string, HttpSession>;
 
 const MAX_HTTP_REQUEST_BODY_BYTES = 1_048_576;
 
-async function parseHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+async function parseHttpRequestBody(
+  request: IncomingMessage,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let byteLength = 0;
 
   for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    const buffer = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(chunk as string);
     byteLength += buffer.byteLength;
     if (byteLength > MAX_HTTP_REQUEST_BODY_BYTES) {
       throw new Error("request body too large");
@@ -1191,9 +1414,7 @@ export async function startHttpServer(
         );
       }
 
-      shutdownPromise = Promise.all(
-        [...resources].map(closeSessionResources),
-      )
+      shutdownPromise = Promise.all([...resources].map(closeSessionResources))
         .then(() => stopped)
         .then(() => undefined);
       return shutdownPromise;
@@ -1201,7 +1422,12 @@ export async function startHttpServer(
 
     const handleSignal = (): void => {
       void shutdown().then(() => {
-        (dependencies.setExitCode ?? ((code) => { process.exitCode = code; }))(0);
+        (
+          dependencies.setExitCode ??
+          ((code) => {
+            process.exitCode = code;
+          })
+        )(0);
       });
     };
 

@@ -7,7 +7,7 @@ It is the contract for how work happens in this repo.
 
 A thin, **governed** MCP server wrapping the Fusion agent-board REST API. Read
 [`SPEC.md`](./SPEC.md) first — especially the **Governance invariants**. The
-value of this project is that it *cannot* do certain things; do not add tools or
+value of this project is that it _cannot_ do certain things; do not add tools or
 code paths that merge PRs, approve plans, change settings, delete/archive tasks,
 restart the system, or publish anything outside the board.
 
@@ -40,13 +40,23 @@ SPEC.md  README.md  AGENTS.md
 ```bash
 pnpm install --frozen-lockfile
 pnpm lint
+pnpm format:check
+pnpm knip
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm pkgcheck
 ```
 
 Node 22 (`.nvmrc`), pnpm as the package manager. Do not switch package managers
 or add a bundler.
+
+Husky hooks run lint-staged (Prettier + ESLint) on commit and
+`typecheck && test` on push — never bypass them (`--no-verify` is forbidden).
+`pnpm knip` must stay clean: remove dead exports and unused dependencies your
+change leaves behind (or make the export internal) rather than ignoring them.
+`pnpm pkgcheck` validates the packaged tarball (publint + a stdio smoke of the
+installed binary).
 
 ## Code style
 
@@ -64,7 +74,8 @@ or add a bundler.
   results. Reuse `FusionError`.
 - **Audit every tool call** via `auditLog(tool, summary)` with a non-sensitive
   argument summary. Diagnostics go to **stderr** (stdout is the stdio protocol).
-- Match the existing formatting; `pnpm lint` is authoritative.
+- Formatting is Prettier-enforced (`pnpm format`); `pnpm lint` and
+  `pnpm format:check` are authoritative.
 
 ## Tests are required for every change
 

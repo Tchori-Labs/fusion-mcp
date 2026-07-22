@@ -1,17 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseConfig, type Config } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
 
 function config(overrides: Partial<Config> = {}): Config {
   return { ...parseConfig({}), ...overrides };
 }
 
-function calledInit(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): RequestInit {
+function calledInit(
+  fetchMock: ReturnType<typeof vi.fn<FetchLike>>,
+): RequestInit {
   const call = fetchMock.mock.calls[0];
   if (call === undefined) {
     throw new Error("fetch was not called");
@@ -25,9 +23,9 @@ afterEach(() => {
 
 describe("FusionClient", () => {
   it("keeps health auth-exempt even when a token exists", async () => {
-    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
-      Response.json({ status: "ok" }),
-    );
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.json({ status: "ok" }));
     const client = new FusionClient(
       config({ token: "test-secret-marker" }),
       fetchMock,
@@ -41,9 +39,9 @@ describe("FusionClient", () => {
       "http://127.0.0.1:4040/api/health",
       expect.objectContaining({ method: "GET" }),
     );
-    expect(new Headers(calledInit(fetchMock).headers).has("authorization")).toBe(
-      false,
-    );
+    expect(
+      new Headers(calledInit(fetchMock).headers).has("authorization"),
+    ).toBe(false);
   });
 
   it("attaches bearer authorization to system info", async () => {
@@ -57,9 +55,9 @@ describe("FusionClient", () => {
 
     await client.getSystemInfo();
 
-    expect(new Headers(calledInit(fetchMock).headers).get("authorization")).toBe(
-      "Bearer test-secret-marker",
-    );
+    expect(
+      new Headers(calledInit(fetchMock).headers).get("authorization"),
+    ).toBe("Bearer test-secret-marker");
   });
 
   it("attaches edge and User-Agent headers to authenticated GET requests", async () => {
@@ -81,9 +79,7 @@ describe("FusionClient", () => {
     const headers = new Headers(calledInit(fetchMock).headers);
     expect(headers.get("authorization")).toBe("Bearer bearer-secret-marker");
     expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
-    expect(headers.get("CF-Access-Client-Secret")).toBe(
-      "access-secret-marker",
-    );
+    expect(headers.get("CF-Access-Client-Secret")).toBe("access-secret-marker");
     expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
     expect(headers.has("content-type")).toBe(false);
   });
@@ -109,9 +105,7 @@ describe("FusionClient", () => {
     expect(headers.get("authorization")).toBe("Bearer bearer-secret-marker");
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
-    expect(headers.get("CF-Access-Client-Secret")).toBe(
-      "access-secret-marker",
-    );
+    expect(headers.get("CF-Access-Client-Secret")).toBe("access-secret-marker");
     expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
     expect(init.body).toBe('{"title":"A task"}');
   });
@@ -135,9 +129,7 @@ describe("FusionClient", () => {
     const headers = new Headers(calledInit(fetchMock).headers);
     expect(headers.has("authorization")).toBe(false);
     expect(headers.get("CF-Access-Client-Id")).toBe("access-client-marker");
-    expect(headers.get("CF-Access-Client-Secret")).toBe(
-      "access-secret-marker",
-    );
+    expect(headers.get("CF-Access-Client-Secret")).toBe("access-secret-marker");
     expect(headers.get("User-Agent")).toBe("fusion-mcp-test-agent");
   });
 
@@ -145,7 +137,10 @@ describe("FusionClient", () => {
     const fetchMock = vi
       .fn<FetchLike>()
       .mockResolvedValue(Response.json({ version: "1.0" }));
-    const client = new FusionClient(config({ token: "placeholder" }), fetchMock);
+    const client = new FusionClient(
+      config({ token: "placeholder" }),
+      fetchMock,
+    );
 
     await client.getSystemInfo();
 
@@ -180,7 +175,10 @@ describe("FusionClient", () => {
     const fetchMock = vi
       .fn<FetchLike>()
       .mockResolvedValue(Response.json({ items: [] }));
-    const client = new FusionClient(config({ token: "placeholder" }), fetchMock);
+    const client = new FusionClient(
+      config({ token: "placeholder" }),
+      fetchMock,
+    );
 
     await client.request("GET", "/api/tasks", {
       query: {
@@ -218,7 +216,10 @@ describe("FusionClient", () => {
     const fetchMock = vi
       .fn<FetchLike>()
       .mockResolvedValue(Response.json({ created: true }));
-    const client = new FusionClient(config({ token: "placeholder" }), fetchMock);
+    const client = new FusionClient(
+      config({ token: "placeholder" }),
+      fetchMock,
+    );
 
     await client.request("post", "/api/tasks", {
       body: { title: "A task" },
@@ -241,7 +242,10 @@ describe("FusionClient", () => {
         },
       }),
     );
-    const client = new FusionClient(config({ token: "placeholder" }), fetchMock);
+    const client = new FusionClient(
+      config({ token: "placeholder" }),
+      fetchMock,
+    );
 
     const response = await client.request<Array<{ id: string }>>(
       "GET",
@@ -296,9 +300,7 @@ describe("FusionClient", () => {
 
   it("normalizes transport failures without exposing underlying errors", async () => {
     const marker = "unsafe-transport-marker";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockRejectedValue(new Error(marker));
+    const fetchMock = vi.fn<FetchLike>().mockRejectedValue(new Error(marker));
     const client = new FusionClient(config(), fetchMock);
 
     const error = await client.getHealth().catch((caught: unknown) => caught);
@@ -322,7 +324,10 @@ describe("FusionClient", () => {
           });
         }),
     );
-    const client = new FusionClient(config({ requestTimeoutMs: 10 }), fetchMock);
+    const client = new FusionClient(
+      config({ requestTimeoutMs: 10 }),
+      fetchMock,
+    );
 
     const request = client.getHealth();
     const rejection = expect(request).rejects.toMatchObject({
@@ -341,18 +346,22 @@ describe("FusionClient", () => {
 
   it("classifies a timeout while reading the response body as timeout", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn<FetchLike>().mockImplementation(async (_url, init) =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            init?.signal?.addEventListener("abort", () => {
-              controller.error(new DOMException("aborted", "AbortError"));
-            });
-          },
-        }),
-      ),
+    const fetchMock = vi.fn<FetchLike>().mockImplementation(
+      async (_url, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () => {
+                controller.error(new DOMException("aborted", "AbortError"));
+              });
+            },
+          }),
+        ),
     );
-    const client = new FusionClient(config({ requestTimeoutMs: 10 }), fetchMock);
+    const client = new FusionClient(
+      config({ requestTimeoutMs: 10 }),
+      fetchMock,
+    );
 
     const request = client.getHealth();
     const rejection = expect(request).rejects.toMatchObject({
@@ -397,9 +406,11 @@ describe("FusionClient", () => {
       accessClientId: "distinctive-test-access-id-marker",
       accessClientSecret: "distinctive-test-access-secret-marker",
     };
-    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
-      new Response(`denied ${markers.accessClientSecret}`, { status: 403 }),
-    );
+    const fetchMock = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(
+        new Response(`denied ${markers.accessClientSecret}`, { status: 403 }),
+      );
     const client = new FusionClient(
       config({
         token: markers.token,
@@ -409,7 +420,9 @@ describe("FusionClient", () => {
       fetchMock,
     );
 
-    const error = await client.getSystemInfo().catch((caught: unknown) => caught);
+    const error = await client
+      .getSystemInfo()
+      .catch((caught: unknown) => caught);
     const rendered = `${String(error)} ${JSON.stringify(error)}`;
 
     expect(error).toBeInstanceOf(FusionError);

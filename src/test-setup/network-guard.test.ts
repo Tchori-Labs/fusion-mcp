@@ -67,9 +67,9 @@ describe("hermetic network guard", () => {
   });
 
   it("blocks TLS connections synchronously", () => {
-    expect(() =>
-      tls.connect({ host: loopbackHost, port: unusedPort }),
-    ).toThrow(HermeticNetworkError);
+    expect(() => tls.connect({ host: loopbackHost, port: unusedPort })).toThrow(
+      HermeticNetworkError,
+    );
   });
 
   it("blocks UDP connection and send entry points synchronously", () => {
@@ -109,11 +109,14 @@ describe("hermetic network guard", () => {
   it.each([
     ["HTTP", `http://${loopbackHost}:${unusedPort}/`, "TCP connect"],
     ["HTTPS", `https://${loopbackHost}:${unusedPort}/`, "TLS connect"],
-  ])("blocks %s fetch transitively at the socket layer", async (_name, url, operation) => {
-    await expect(rethrowGuardCause(fetch(url))).rejects.toThrow(
-      new RegExp(`Hermetic test guard.*Attempted ${operation}`),
-    );
-  });
+  ])(
+    "blocks %s fetch transitively at the socket layer",
+    async (_name, url, operation) => {
+      await expect(rethrowGuardCause(fetch(url))).rejects.toThrow(
+        new RegExp(`Hermetic test guard.*Attempted ${operation}`),
+      );
+    },
+  );
 
   it("uses a stable, controlled, non-sensitive error message", () => {
     const error = new HermeticNetworkError("TCP connect");
