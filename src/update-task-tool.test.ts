@@ -134,7 +134,7 @@ describe("update_task", () => {
       expectedProjectId: "project-default",
     },
   ])(
-    "sends $name scope in the PATCH body with an empty query string",
+    "sends $name scope as the projectId query parameter, not in the body",
     async ({ env, arguments: callArguments, expectedProjectId }) => {
       const fetchMock = vi
         .fn<FetchLike>()
@@ -149,11 +149,10 @@ describe("update_task", () => {
 
         expect(result.isError).not.toBe(true);
         expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PATCH");
-        expect(requestedUrl(fetchMock).search).toBe("");
-        expect(requestedBody(fetchMock)).toEqual({
-          priority: "urgent",
-          projectId: expectedProjectId,
-        });
+        expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
+          expectedProjectId,
+        );
+        expect(requestedBody(fetchMock)).toEqual({ priority: "urgent" });
       } finally {
         await harness.close();
       }
@@ -236,10 +235,10 @@ describe("update_task", () => {
 
         expect(result.isError).not.toBe(true);
         // Ungoverned fields are stripped by the schema, never reaching the API.
-        expect(requestedBody(fetchMock)).toEqual({
-          title: "A title",
-          projectId: "project-default",
-        });
+        expect(requestedBody(fetchMock)).toEqual({ title: "A title" });
+        expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
+          "project-default",
+        );
         expect(serialized).not.toContain(forbiddenValue);
       } finally {
         await harness.close();

@@ -946,6 +946,30 @@ export function buildServer(
     },
     async ({ settings, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
+      if (resolvedProjectId === undefined) {
+        auditLog("update_project_settings", "validation=failed");
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: {
+                  code: "validation",
+                  message: "Invalid tool arguments",
+                  details: [
+                    {
+                      path: ["projectId"],
+                      message:
+                        "projectId is required when FUSION_DEFAULT_PROJECT_ID is not configured",
+                    },
+                  ],
+                },
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
       const body = {
         ...(settings.mergeStrategy === undefined
           ? {}
@@ -1015,9 +1039,6 @@ export function buildServer(
         ...(description === undefined ? {} : { description }),
         ...(priority === undefined ? {} : { priority }),
         ...(dependencies === undefined ? {} : { dependencies }),
-        ...(resolvedProjectId === undefined
-          ? {}
-          : { projectId: resolvedProjectId }),
       };
       const fields = [
         title === undefined ? undefined : "title",
@@ -1035,7 +1056,10 @@ export function buildServer(
       const response = await client.request<unknown>(
         "PATCH",
         `/api/tasks/${encodeURIComponent(id)}`,
-        { body },
+        {
+          query: { projectId: resolvedProjectId },
+          body,
+        },
       );
 
       return {
@@ -1063,9 +1087,7 @@ export function buildServer(
       const response = await client.request<unknown>(
         "POST",
         `/api/tasks/${encodeURIComponent(id)}/archive`,
-        resolvedProjectId === undefined
-          ? undefined
-          : { body: { projectId: resolvedProjectId } },
+        { query: { projectId: resolvedProjectId } },
       );
 
       return {

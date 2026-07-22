@@ -51,14 +51,6 @@ function requestedUrl(fetchMock: ReturnType<typeof vi.fn<FetchLike>>): URL {
   return new URL(url);
 }
 
-function requestedBody(
-  fetchMock: ReturnType<typeof vi.fn<FetchLike>>,
-): Record<string, unknown> {
-  const body = fetchMock.mock.calls[0]?.[1]?.body;
-  if (typeof body !== "string") throw new Error("expected JSON body");
-  return JSON.parse(body) as Record<string, unknown>;
-}
-
 beforeEach(() => {
   vi.spyOn(process.stderr, "write").mockReturnValue(true);
 });
@@ -120,7 +112,7 @@ describe("archive_task", () => {
       expectedProjectId: "project-default",
     },
   ])(
-    "sends $name in the POST body",
+    "sends $name as the projectId query parameter with no body",
     async ({ env, arguments: callArguments, expectedProjectId }) => {
       const fetchMock = vi
         .fn<FetchLike>()
@@ -138,10 +130,10 @@ describe("archive_task", () => {
         expect(requestedUrl(fetchMock).pathname).toBe(
           `/api/tasks/${callArguments.id}/archive`,
         );
-        expect(requestedUrl(fetchMock).search).toBe("");
-        expect(requestedBody(fetchMock)).toEqual({
-          projectId: expectedProjectId,
-        });
+        expect(requestedUrl(fetchMock).searchParams.get("projectId")).toBe(
+          expectedProjectId,
+        );
+        expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
       } finally {
         await harness.close();
       }

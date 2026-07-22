@@ -335,14 +335,11 @@ describe("update_project_settings", () => {
     }
   });
 
-  it("puts to global settings when no scope resolves", async () => {
-    // Squash-faithful baseline behavior: with neither an explicit projectId nor
-    // a configured default, the PUT reaches the server without a projectId query
-    // parameter. The mandatory-scope guard that closes this gap lands as a
-    // separate review fix-forward commit.
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json({ autoMerge: false }));
+  it("rejects unresolved scope instead of reaching global settings", async () => {
+    // A settings write with neither an explicit projectId nor a configured
+    // default must be rejected before any request: an unscoped PUT would target
+    // global settings instead of a project.
+    const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(
       parseConfig({ FUSION_TOKEN: tokenMarker }),
       fetchMock,
@@ -351,13 +348,48 @@ describe("update_project_settings", () => {
     try {
       const result = await harness.client.callTool({
         name: "update_project_settings",
+        arguments: { settings: { pushAfterMerge: true } },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textResult(result)).toMatchObject({
+        error: {
+          code: "validation",
+          message: "Invalid tool arguments",
+          details: [
+            {
+              path: ["projectId"],
+              message:
+                "projectId is required when FUSION_DEFAULT_PROJECT_ID is not configured",
+            },
+          ],
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("audits the rejected unresolved-scope call as a validation failure", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const fetchMock = vi.fn<FetchLike>();
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: tokenMarker }),
+      fetchMock,
+    );
+
+    try {
+      await harness.client.callTool({
+        name: "update_project_settings",
         arguments: { settings: { autoMerge: false } },
       });
 
-      expect(result.isError).not.toBe(true);
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect(requestedUrl(fetchMock).pathname).toBe("/api/settings");
-      expect(requestedUrl(fetchMock).searchParams.has("projectId")).toBe(false);
+      expect(stderr).toHaveBeenCalledOnce();
+      expect(stderr.mock.calls[0]?.[0]).toMatch(
+        /^\[\d{4}-\d{2}-\d{2}T[^\]]+Z\] tool=update_project_settings validation=failed\n$/,
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       await harness.close();
     }
