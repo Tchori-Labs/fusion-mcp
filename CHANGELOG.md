@@ -21,6 +21,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   redaction applied to upstream response payloads.
 - Governed `update_task` writes limited to dependencies, priority, title, and
   description, plus recoverable board-hygiene archiving through `archive_task`.
+- `read_project_settings` now masks `daemonToken` and every nested key matching
+  `/token|secret|passphrase|credential/i` as `[REDACTED]` before returning the
+  settings payload (issue #87).
 - A generated additive tool-contract baseline for the three new tools.
 
 ### Changed

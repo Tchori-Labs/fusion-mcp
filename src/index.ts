@@ -587,7 +587,10 @@ export function buildServer(
       const settings = await client.getSettings(effectiveProjectId);
       return {
         content: [
-          { type: "text", text: JSON.stringify({ settings: settings.data }) },
+          {
+            type: "text",
+            text: JSON.stringify({ settings: redactSettings(settings.data) }),
+          },
         ],
       };
     },

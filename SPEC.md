@@ -147,8 +147,9 @@ Fusion API may accept are intentionally not surfaced.
 invariant 2; any other key is rejected before any request is made, and
 `planApprovalMode` is accepted only with the strengthen-only value `require-all`.
 `update_task` edits only `dependencies`, `priority`, `title`, and `description`.
-`archive_task` is recoverable board hygiene only. The `update_project_settings`
-response masks the complete value of `daemonToken` and any key matching
+`archive_task` is recoverable board hygiene only. Both the
+`read_project_settings` payload and the `update_project_settings` response mask
+the complete value of `daemonToken` and any key matching
 `/token|secret|passphrase|credential/i`, including keys nested in objects or
 arrays, as `[REDACTED]` before returning the settings payload.
 

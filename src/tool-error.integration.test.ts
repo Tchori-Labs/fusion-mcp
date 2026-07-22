@@ -253,6 +253,69 @@ describe("governed tool error envelopes", () => {
     }
   });
 
+  it("returns a secret-free settings error when upstream includes credentials", async () => {
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
+      new Response(JSON.stringify({ daemonToken: unsafeMarker }), {
+        status: 503,
+      }),
+    );
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: tokenMarker }),
+      { fetch: fetchMock },
+    );
+
+    try {
+      const result = await harness.client.callTool({
+        name: "read_project_settings",
+        arguments: {},
+      });
+      const parsed = errorEnvelope(result);
+
+      expect(parsed.error).toEqual({
+        code: "upstream_error",
+        message: "Upstream request failed",
+        status: 503,
+      });
+      const rendered = JSON.stringify(result);
+      expect(rendered).not.toContain(unsafeMarker);
+      expect(rendered).not.toContain(tokenMarker);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("does not echo a failed settings response body", async () => {
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
+      new Response(JSON.stringify({ daemonToken: unsafeMarker }), {
+        status: 503,
+      }),
+    );
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: tokenMarker }),
+      { fetch: fetchMock },
+    );
+
+    try {
+      const result = await harness.client.callTool({
+        name: "read_project_settings",
+        arguments: {},
+      });
+
+      expect(errorEnvelope(result)).toEqual({
+        error: {
+          code: "upstream_error",
+          message: "Upstream request failed",
+          status: 503,
+        },
+      });
+      const rendered = JSON.stringify(result);
+      expect(rendered).not.toContain(unsafeMarker);
+      expect(rendered).not.toContain(tokenMarker);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("returns timeout without status", async () => {
     const fetchMock = vi.fn<FetchLike>().mockImplementation(
       (_url, init) =>

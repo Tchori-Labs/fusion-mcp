@@ -114,11 +114,12 @@ Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_approvals` · `get_approval` · `list_missions` · `get_mission` ·
 `move_task` · `update_project_settings` · `update_task` · `archive_task`.
 
-The response from `update_project_settings` masks `daemonToken` and every nested
-key matching `/token|secret|passphrase|credential/i` with `[REDACTED]` before
-returning the settings payload. `get_task_logs` and `get_task_workflow_results`
-require `id` and accept optional `projectId` for task lookup; `get_task_logs`
-also accepts pagination bounds.
+`read_project_settings` and the response from `update_project_settings` mask
+`daemonToken` and every nested key matching
+`/token|secret|passphrase|credential/i` with `[REDACTED]` before returning the
+settings payload. `get_task_logs` and `get_task_workflow_results` require `id`
+and accept optional `projectId` for task lookup; `get_task_logs` also accepts
+pagination bounds.
 
 ### Governed writes
 
