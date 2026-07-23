@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected project-scope placement and trusted-publishing command documentation.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added
@@ -22,6 +26,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A generated additive tool-contract baseline for the three new tools.
 - A packed-artifact smoke gate now blocks tagged publication until the tarball
   clean-installs and its installed bin completes an MCP initialize handshake.
+- The required live release gate now verifies explicit and default project scope
+  across multiple projects before publication.
 
 ### Changed
 

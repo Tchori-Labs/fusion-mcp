@@ -206,8 +206,8 @@ After both gates pass, the publish job checks out the fully qualified tag ref,
 verifies that `HEAD` is the dereferenced tag commit, refuses to continue unless
 the tag's commit is an ancestor of `main`, re-runs all five release gates,
 verifies that `package.json`'s version equals the tag, then runs
-`npm publish --provenance --access public` authenticated through OIDC. No npm
-token secret is stored, and npm attaches provenance automatically. Because
+`npm publish --access public` authenticated through OIDC. No npm token secret is
+stored, and trusted publishing attaches provenance automatically. Because
 trusted publishing only becomes available after the first version exists,
 CI-driven publication begins with `0.1.1`.
 

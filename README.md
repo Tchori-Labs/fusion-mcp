@@ -149,11 +149,12 @@ pagination bounds.
   parameter on `PUT /api/settings`.
 
 Project- and task-scoped tools take an optional `projectId`; `get_board_health`
-and `list_projects` are instance-scoped. Task-scoped GET requests send resolved
-scope in the query string, while POST requests send it in the body. Write tools
-remain limited to the governed operations above: task creation, communication,
-board reprioritisation, task-metadata edits, recoverable archiving, and the
-project-settings allowlist. Audits contain only safe
+and `list_projects` are instance-scoped. Reads, `update_project_settings`,
+`update_task`, and `archive_task` send resolved scope in the query string;
+task creation, communication, pause/unpause, and movement send it in the body.
+Write tools remain limited to the governed operations above: task creation,
+communication, board reprioritisation, task-metadata edits, recoverable
+archiving, and the project-settings allowlist. Audits contain only safe
 metadata selected per tool, such as task or project ids, create-task titles,
 column names, and pagination bounds; full message bodies and tokens are never
 logged. Full parameter and endpoint mapping is in

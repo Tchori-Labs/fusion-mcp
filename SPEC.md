@@ -94,9 +94,11 @@ fn_<hex>`. The same token authorises the dashboard and the headless
   pair and optional `User-Agent` override through the environment. The Access
   pair is attached to every upstream request, including auth-exempt health
   checks, and is never logged or returned.
-- Multi-project scoping: an optional `projectId` is a **query param on GET** and a
-  **body field on POST**. Omitted ⇒ the server's default project. The MCP layer
-  applies `FUSION_DEFAULT_PROJECT_ID` when a tool call omits `projectId`.
+- Multi-project scoping: an optional `projectId` is a query parameter on reads,
+  `update_project_settings`, `update_task`, and `archive_task`; task creation,
+  communication, pause/unpause, and movement send resolved scope in the request
+  body. Omitted ⇒ the server's default project. The MCP layer applies
+  `FUSION_DEFAULT_PROJECT_ID` when a tool call omits `projectId`.
 
 ## Configuration (environment)
 
