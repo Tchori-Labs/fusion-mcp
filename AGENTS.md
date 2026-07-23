@@ -6,10 +6,17 @@ It is the contract for how work happens in this repo.
 ## What this project is
 
 A thin, **governed** MCP server wrapping the Fusion agent-board REST API. Read
-[`SPEC.md`](./SPEC.md) first — especially the **Governance invariants**. The
+[`SPEC.md`](./SPEC.md) first — its **Governance invariants** are canonical. The
 value of this project is that it _cannot_ do certain things; do not add tools or
-code paths that merge PRs, approve plans, change settings, delete/archive tasks,
-restart the system, or publish anything outside the board.
+code paths that merge PRs, approve plans, delete tasks or perform any
+irreversible or bulk destructive operation, mutate settings outside the hard
+allowlist, restart or control the system, or publish anything outside the board.
+Settings writes and task archiving have exactly two narrow exceptions:
+`update_project_settings`, constrained to the hard-allowlisted keys in SPEC.md
+governance invariant 2 (every other key is structurally unreachable), and
+`archive_task`, permitted solely as recoverable board hygiene under invariant 3
+(delete and bulk mutation remain excluded). No broader capability is authorized;
+adding a tool that violates invariants 1–5 is a spec change, not a feature.
 
 ## Branch model & releases
 
