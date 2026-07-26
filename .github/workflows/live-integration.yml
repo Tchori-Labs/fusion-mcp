@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload redacted failure diagnostics
         if: failure() && steps.gate.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: live-integration-redacted-traces
           path: /tmp/fusion-mcp-*.log
