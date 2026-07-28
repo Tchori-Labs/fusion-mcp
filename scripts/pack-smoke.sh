@@ -16,6 +16,30 @@ cd "$workdir"
 printf '{"name":"pack-smoke","private":true}\n' > package.json
 pnpm add ./package.tgz --silent >/dev/null
 
+node --input-type=module <<'EOF'
+import { readFile } from "node:fs/promises";
+
+const scratchManifest = JSON.parse(await readFile("package.json", "utf8"));
+const [packageName] = Object.keys(scratchManifest.dependencies ?? {});
+if (packageName === undefined) {
+  console.error("pack-smoke: installed package was not recorded as a dependency");
+  process.exit(1);
+}
+
+try {
+  await import(`${packageName}/dist/index.js`);
+  console.error("pack-smoke: published entry unexpectedly supports deep import");
+  process.exit(1);
+} catch (error) {
+  if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") {
+    console.error(
+      `pack-smoke: deep import failed with unexpected error (${error?.code ?? "unknown"})`,
+    );
+    process.exit(1);
+  }
+}
+EOF
+
 node - <<'EOF'
 const { spawn } = require("node:child_process");
 

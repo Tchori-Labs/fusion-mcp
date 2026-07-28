@@ -23,6 +23,9 @@
   },
   "license": "MIT",
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "bin": {
     "fusion-mcp": "dist/index.js"
   },

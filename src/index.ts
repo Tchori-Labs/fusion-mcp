@@ -351,6 +351,9 @@ function normalizeInvalidToolCalls(
   const setRequestHandler = server.server.setRequestHandler.bind(server.server);
 
   server.server.setRequestHandler = (schema, handler) => {
+    if ((handler as StoredRequestHandler)[normalizedToolCallHandler] === true) {
+      return;
+    }
     setRequestHandler(schema, handler);
 
     // Both Server.setRequestHandler and Protocol.setRequestHandler parse the

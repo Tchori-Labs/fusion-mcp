@@ -261,11 +261,14 @@ injectable for embedding and tests and defaults lazily to `process.stderr`.
 HTTP session lifecycle diagnostics use the same sink. stdout remains reserved
 for protocol output on both stdio and HTTP paths and receives no diagnostics.
 
-This guarantee covers every production path, all of which use `buildServer`.
-The in-process injectable `serverFactory` runtime dependency is a test-only seam
-that may supply an arbitrary server and is therefore outside the per-tool audit
-guarantee; diagnostics emitted by the HTTP runtime itself still use the shared
-stderr sink.
+The package publishes no importable JavaScript entry: its `exports` map exposes
+only `package.json`, while the installed binary remains available through
+`bin`. The CLI entry always constructs its stdio and HTTP servers through
+`buildServer`, so every server reachable from the published package receives
+the governed audit logger. The in-process injectable `serverFactory` runtime
+dependency is a test-only seam that may supply an arbitrary server and is
+therefore outside the per-tool audit guarantee; diagnostics emitted by the HTTP
+runtime itself still use the shared stderr sink.
 
 ## Deployment sketch
 

@@ -5,12 +5,31 @@ import { describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PUBLISH_WORKFLOW_PATH = ".github/workflows/publish.yml";
+const PACKAGE_JSON_PATH = `${REPOSITORY_ROOT}/package.json`;
 
 function publishWorkflow(): string {
   const path = `${REPOSITORY_ROOT}/${PUBLISH_WORKFLOW_PATH}`;
   expect(existsSync(path), `${PUBLISH_WORKFLOW_PATH} must exist`).toBe(true);
   return readFileSync(path, "utf8");
 }
+
+describe("package surface policy", () => {
+  it("ships the CLI without exposing an importable JavaScript entry", () => {
+    const manifest = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
+      bin?: Record<string, string>;
+      exports?: Record<string, unknown>;
+    };
+
+    expect(manifest.bin).toEqual({ "fusion-mcp": "dist/index.js" });
+    expect(manifest.exports).toBeDefined();
+    expect(Object.hasOwn(manifest.exports ?? {}, ".")).toBe(false);
+    expect(
+      Object.values(manifest.exports ?? {}).some(
+        (target) => typeof target === "string" && target.endsWith(".js"),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("publish workflow policy", () => {
   it("runs only for version-tag pushes or manual dispatch", () => {

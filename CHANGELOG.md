@@ -16,6 +16,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Audit lines and HTTP runtime diagnostics now share one injectable stderr sink
   that defaults lazily to `process.stderr` across both production transports.
+- The package no longer exposes an importable programmatic API, preventing
+  consumers from bypassing the per-tool audit guarantee through a custom server.
 
 ### Fixed
 

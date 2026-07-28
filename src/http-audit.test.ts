@@ -237,14 +237,15 @@ describe("governed tool-call auditing", () => {
     );
 
     try {
-      await harness.client.callTool({
-        name: "get_board_health",
+      const result = await harness.client.callTool({
+        name: "stacked hostile tool",
         arguments: {},
       });
 
+      expect(result.isError).toBe(true);
       expectSingleAudit(
         harness.stderr,
-        /^\[[^\]]+Z\] tool=get_board_health\n$/,
+        /^\[[^\]]+Z\] tool=stacked_hostile_tool unknown_tool\n$/,
       );
     } finally {
       await harness.close();
