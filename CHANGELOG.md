@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- An advisory validation-cause classifier and `rederivation:check` CLI that
+  distinguish engine-synthesized assertion results from substantive findings.
+- A classify-before-implement protocol with drift guards for repeated
+  validation-cause tasks.
+
 ### Fixed
 
 - Corrected project-scope placement and trusted-publishing command documentation.
