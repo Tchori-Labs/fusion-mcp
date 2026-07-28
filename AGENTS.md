@@ -30,18 +30,6 @@ adding a tool that violates invariants 1–5 is a spec change, not a feature.
   released line (e.g. CI runs on both; dev-status links point at `develop`).
 - Hotfixes that must skip `develop` are created as tasks with `baseBranch=main`.
 
-## Branch model & releases
-
-- Integration branch is `develop`. Fusion cuts each task's worktree from
-  `develop` and squash-merges it back to `develop` automatically — you don't
-  open PRs or choose the target branch.
-- `main` is release-only and protected. It changes solely via a reviewed
-  `develop → main` PR + version tag at release time.
-- Do NOT assume `main` is the working trunk. New CI, scripts, docs, and release
-  tooling must treat `develop` as the day-to-day branch and `main` as the
-  released line (e.g. CI runs on both; dev-status links point at `develop`).
-- Hotfixes that must skip `develop` are created as tasks with `baseBranch=main`.
-
 ## Project layout
 
 ```
