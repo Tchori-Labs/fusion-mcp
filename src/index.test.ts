@@ -256,6 +256,7 @@ describe("session-aware HTTP mode", () => {
       serverFactory,
     });
 
+    expect(LOOPBACK_BIND_HOST).toBe("127.0.0.1");
     expect(http.listen).toHaveBeenCalledWith(
       4242,
       LOOPBACK_BIND_HOST,
