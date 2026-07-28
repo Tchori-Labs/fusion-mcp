@@ -13,7 +13,9 @@ interface PackageJson {
   version: string;
 }
 
-const outputPath = fileURLToPath(new URL("../tool-contract.json", import.meta.url));
+const outputPath = fileURLToPath(
+  new URL("../tool-contract.json", import.meta.url),
+);
 const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 
 async function readExistingContract(): Promise<
@@ -21,8 +23,7 @@ async function readExistingContract(): Promise<
 > {
   try {
     return JSON.parse(await readFile(outputPath, "utf8")) as
-      | ToolContractArtifact
-      | ToolContractManifest;
+      ToolContractArtifact | ToolContractManifest;
   } catch (error) {
     if (
       typeof error === "object" &&
@@ -36,7 +37,9 @@ async function readExistingContract(): Promise<
   }
 }
 
-const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as PackageJson;
+const packageJson = JSON.parse(
+  await readFile(packagePath, "utf8"),
+) as PackageJson;
 const existing = await readExistingContract();
 const liveManifest = await generateToolManifest();
 const artifact = updateToolContractArtifact(

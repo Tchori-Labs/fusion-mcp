@@ -1,0 +1,134 @@
+# Governed npm publish. A version-tag push starts the release path; a human can
+# also dispatch it with an existing tag. The pack-smoke gate checks the exact
+# tag's packed artifact before the publish job checks out that tag, verifies the
+# checkout is the tag commit, refuses to publish unless that commit is on `main`,
+# re-runs all five release gates, verifies the package version equals the tag,
+# and publishes via npm Trusted Publishing
+# (OIDC) — no long-lived npm token secret. The first publish of a new package
+# name cannot use OIDC and must be done locally; see docs/release.md.
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0). Must already exist and point at a commit on main."
+        required: true
+        type: string
+
+concurrency:
+  group: publish-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # Required for npm Trusted Publishing (OIDC)
+
+jobs:
+  pack-smoke:
+    name: Pack smoke test
+    uses: ./.github/workflows/pack-smoke.yml
+    with:
+      ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
+
+  live-integration:
+    name: Live integration gate
+    # The called workflow checks out this dispatch's ref. Dispatch publish.yml
+    # from main or the release tag ref as documented in docs/release.md.
+    uses: ./.github/workflows/live-integration.yml
+    secrets: inherit
+
+  publish:
+    name: Publish to npm
+    needs: [pack-smoke, live-integration]
+    runs-on: ubuntu-latest
+    # Attach required-reviewer protection to this environment in the repository
+    # settings so a human must approve every npm publish (see docs/release.md).
+    environment: npm-publish
+    timeout-minutes: 15
+    steps:
+      - name: Validate tag input
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag '$TAG' is not a valid vX.Y.Z release tag."
+            exit 1
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ format('refs/tags/{0}', inputs.tag || github.ref_name) }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag checkout and main ancestry
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          TAG_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+            echo "::error::Checked out ${HEAD_SHA}, but tag ${TAG} resolves to ${TAG_SHA}."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            echo "::error::Tag ${TAG} (${TAG_SHA}) is not an ancestor of main. Only releases merged to main may be published."
+            exit 1
+          fi
+          echo "OK: ${TAG} (${TAG_SHA}) is on main."
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          # No dependency caching here on purpose: a release build that mints
+          # provenance must not restore artifacts cached from other refs.
+
+      - name: Upgrade npm for Trusted Publishing
+        # Trusted Publishing (OIDC) requires npm CLI >= 11.5.1; Node 22 ships
+        # npm 10.x, so upgrade the globally installed npm before publishing.
+        run: npm install --global npm@^11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Contract check
+        run: pnpm contract:check
+
+      - name: Verify package version matches tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "v${PKG_VERSION}" != "${TAG}" ]; then
+            echo "::error::package.json version v${PKG_VERSION} does not match tag ${TAG}."
+            exit 1
+          fi
+          echo "OK: package.json version v${PKG_VERSION} matches ${TAG}."
+
+      - name: Publish to npm
+        # Trusted Publishing generates provenance automatically; no
+        # --provenance flag or token secret is needed.
+        run: npm publish --access public

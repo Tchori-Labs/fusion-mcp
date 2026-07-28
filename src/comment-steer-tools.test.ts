@@ -2,12 +2,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { parseConfig, type Config } from "./config.js";
+import { parseConfig, type Config, type Environment } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -132,6 +133,91 @@ describe("comment_task", () => {
   });
 
   it.each([
+    {
+      label: "explicit project over configured default",
+      env: {
+        FUSION_TOKEN: "fake-token-marker",
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: {
+        id: "FN-013",
+        text: "A useful comment",
+        author: "reviewer",
+        projectId: "explicit-project",
+      },
+      expectedProjectId: "explicit-project",
+    },
+    {
+      label: "configured default project",
+      env: {
+        FUSION_TOKEN: "fake-token-marker",
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: {
+        id: "FN-013",
+        text: "A useful comment",
+        author: "reviewer",
+      },
+      expectedProjectId: "default-project",
+    },
+    {
+      label: "server default project",
+      env: { FUSION_TOKEN: "fake-token-marker" },
+      arguments: {
+        id: "FN-013",
+        text: "A useful comment",
+        author: "reviewer",
+      },
+      expectedProjectId: undefined,
+    },
+  ] satisfies Array<{
+    label: string;
+    env: Environment;
+    arguments: {
+      id: string;
+      text: string;
+      author: string;
+      projectId?: string;
+    };
+    expectedProjectId: string | undefined;
+  }>)(
+    "applies $label scope in the comment body",
+    async ({ env, arguments: toolArguments, expectedProjectId }) => {
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ accepted: true }));
+      const harness = await createHarness(parseConfig(env), fetchMock);
+
+      try {
+        const result = await harness.client.callTool({
+          name: "comment_task",
+          arguments: toolArguments,
+        });
+
+        expect(result.isError).not.toBe(true);
+        const body = requestDetails(fetchMock).body;
+        expect(body).toEqual({
+          text: "A useful comment",
+          author: "reviewer",
+          ...(expectedProjectId === undefined
+            ? {}
+            : { projectId: expectedProjectId }),
+        });
+        if (expectedProjectId === undefined) {
+          expect(body).not.toHaveProperty("projectId");
+        }
+        expect(auditOutput()).toContain(
+          `projectIdApplied=${String(expectedProjectId !== undefined)}`,
+        );
+        expect(auditOutput()).not.toContain("explicit-project");
+        expect(auditOutput()).not.toContain("default-project");
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
+  it.each([
     ["missing id", { text: "comment" }],
     ["missing text", { id: "FN-013" }],
     ["empty text", { id: "FN-013", text: "" }],
@@ -188,6 +274,76 @@ describe("steer_task", () => {
   });
 
   it.each([
+    {
+      label: "explicit project over configured default",
+      env: {
+        FUSION_TOKEN: "fake-token-marker",
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: {
+        id: "FN-013",
+        text: "Steer safely",
+        projectId: "explicit-project",
+      },
+      expectedProjectId: "explicit-project",
+    },
+    {
+      label: "configured default project",
+      env: {
+        FUSION_TOKEN: "fake-token-marker",
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-013", text: "Steer safely" },
+      expectedProjectId: "default-project",
+    },
+    {
+      label: "server default project",
+      env: { FUSION_TOKEN: "fake-token-marker" },
+      arguments: { id: "FN-013", text: "Steer safely" },
+      expectedProjectId: undefined,
+    },
+  ] satisfies Array<{
+    label: string;
+    env: Environment;
+    arguments: { id: string; text: string; projectId?: string };
+    expectedProjectId: string | undefined;
+  }>)(
+    "applies $label scope in the steer body",
+    async ({ env, arguments: toolArguments, expectedProjectId }) => {
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ accepted: true }));
+      const harness = await createHarness(parseConfig(env), fetchMock);
+
+      try {
+        const result = await harness.client.callTool({
+          name: "steer_task",
+          arguments: toolArguments,
+        });
+
+        expect(result.isError).not.toBe(true);
+        const body = requestDetails(fetchMock).body;
+        expect(body).toEqual({
+          text: "Steer safely",
+          ...(expectedProjectId === undefined
+            ? {}
+            : { projectId: expectedProjectId }),
+        });
+        if (expectedProjectId === undefined) {
+          expect(body).not.toHaveProperty("projectId");
+        }
+        expect(auditOutput()).toContain(
+          `projectIdApplied=${String(expectedProjectId !== undefined)}`,
+        );
+        expect(auditOutput()).not.toContain("explicit-project");
+        expect(auditOutput()).not.toContain("default-project");
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
+  it.each([
     ["empty text", ""],
     ["text over the maximum", `rejected-${"x".repeat(1992)}`],
   ])("rejects %s without fetching or logging it", async (_name, text) => {
@@ -217,34 +373,43 @@ describe("communication tool safety", () => {
   it.each([
     [
       "comment_task",
-      { id: "FN-013", text: "comment-text-sentinel", author: "author-sentinel" },
+      {
+        id: "FN-013",
+        text: "comment-text-sentinel",
+        author: "author-sentinel",
+      },
     ],
     ["steer_task", { id: "FN-014", text: "steer-text-sentinel" }],
-  ])("audits a successful %s call with the task id only", async (name, arguments_) => {
-    const token = "FUSION_TOKEN_SENTINEL";
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json({ accepted: true }));
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: token }),
-      fetchMock,
-    );
-
-    try {
-      await harness.client.callTool({ name, arguments: arguments_ });
-
-      expect(process.stderr.write).toHaveBeenCalledTimes(1);
-      const output = auditOutput();
-      expect(output).toMatch(
-        new RegExp(`^\\[[^\\]]+\\] tool=${name} id=${arguments_.id}\\n$`),
+  ])(
+    "audits a successful %s call with the task id only",
+    async (name, arguments_) => {
+      const token = "FUSION_TOKEN_SENTINEL";
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ accepted: true }));
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: token }),
+        fetchMock,
       );
-      expect(output).not.toContain(arguments_.text);
-      expect(output).not.toContain("author-sentinel");
-      expect(output).not.toContain(token);
-    } finally {
-      await harness.close();
-    }
-  });
+
+      try {
+        await harness.client.callTool({ name, arguments: arguments_ });
+
+        expect(process.stderr.write).toHaveBeenCalledTimes(1);
+        const output = auditOutput();
+        expect(output).toMatch(
+          new RegExp(
+            `^\\[[^\\]]+\\] tool=${name} id=${arguments_.id} projectIdApplied=false\\n$`,
+          ),
+        );
+        expect(output).not.toContain(arguments_.text);
+        expect(output).not.toContain("author-sentinel");
+        expect(output).not.toContain(token);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("surfaces a token-free FusionError without the upstream body", async () => {
     const token = "FUSION_TOKEN_SENTINEL";

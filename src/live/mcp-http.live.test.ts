@@ -6,6 +6,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { expect, it } from "vitest";
 
 import {
+  assertNoNonLoopbackListener,
   describeLive,
   liveChildEnvironment,
   liveIterations,
@@ -32,6 +33,14 @@ const expectedTools = [
   "steer_task",
   "pause_task",
   "unpause_task",
+  "list_approvals",
+  "get_approval",
+  "list_missions",
+  "get_mission",
+  "move_task",
+  "update_project_settings",
+  "update_task",
+  "archive_task",
 ];
 
 function assertTokenAbsent(label: string, text: string, token: string): void {
@@ -67,7 +76,9 @@ function assertHealthResult(result: unknown): void {
 }
 
 function safeError(error: unknown): string {
-  return redactToken(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  return redactToken(
+    error instanceof Error ? (error.stack ?? error.message) : String(error),
+  );
 }
 
 describeLive("live MCP Streamable HTTP transport", () => {
@@ -75,7 +86,9 @@ describeLive("live MCP Streamable HTTP transport", () => {
     try {
       await access(serverEntryPoint);
     } catch {
-      throw new Error("dist/index.js is missing; run `pnpm build` before `pnpm test:live`");
+      throw new Error(
+        "dist/index.js is missing; run `pnpm build` before `pnpm test:live`",
+      );
     }
     const token = process.env.FUSION_TOKEN;
     if (token === undefined || token.trim() === "") {
@@ -93,11 +106,15 @@ describeLive("live MCP Streamable HTTP transport", () => {
 
     try {
       await waitForLoopbackListener(port, server.child);
+      await assertNoNonLoopbackListener(port);
       const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 
       for (let iteration = 1; iteration <= liveIterations(); iteration += 1) {
         const transport = new StreamableHTTPClientTransport(endpoint);
-        const client = new Client({ name: "fusion-mcp-live-http", version: "1.0.0" });
+        const client = new Client({
+          name: "fusion-mcp-live-http",
+          version: "1.0.0",
+        });
         let sessionId: string | undefined;
 
         try {
@@ -106,7 +123,9 @@ describeLive("live MCP Streamable HTTP transport", () => {
           await client.connect(transport as Transport);
           sessionId = transport.sessionId;
           if (sessionId === undefined || sessionId === "") {
-            throw new Error("HTTP initialization did not issue an mcp-session-id");
+            throw new Error(
+              "HTTP initialization did not issue an mcp-session-id",
+            );
           }
           await waitForCondition(
             () => server.stderr().includes(`session=${sessionId} event=init`),
@@ -116,7 +135,9 @@ describeLive("live MCP Streamable HTTP transport", () => {
           const tools = await client.listTools();
           expect(tools.tools.map(({ name }) => name)).toEqual(expectedTools);
           if (transport.sessionId !== sessionId) {
-            throw new Error("HTTP session changed between initialize and tools/list");
+            throw new Error(
+              "HTTP session changed between initialize and tools/list",
+            );
           }
 
           const firstHealth = await client.callTool({
@@ -125,7 +146,9 @@ describeLive("live MCP Streamable HTTP transport", () => {
           });
           assertHealthResult(firstHealth);
           if (transport.sessionId !== sessionId) {
-            throw new Error("HTTP session changed after the first governed call");
+            throw new Error(
+              "HTTP session changed after the first governed call",
+            );
           }
 
           const secondHealth = await client.callTool({
@@ -134,12 +157,16 @@ describeLive("live MCP Streamable HTTP transport", () => {
           });
           assertHealthResult(secondHealth);
           if (transport.sessionId !== sessionId) {
-            throw new Error("HTTP session was not reused for the second governed call");
+            throw new Error(
+              "HTTP session was not reused for the second governed call",
+            );
           }
 
           await transport.terminateSession();
           if (transport.sessionId !== undefined) {
-            throw new Error("HTTP transport retained its session after DELETE teardown");
+            throw new Error(
+              "HTTP transport retained its session after DELETE teardown",
+            );
           }
           await waitForCondition(
             () => server.stderr().includes(`session=${sessionId} event=close`),
@@ -172,40 +199,57 @@ describeLive("live MCP Streamable HTTP transport", () => {
         await shutdownClient.connect(shutdownTransport as Transport);
         const shutdownSessionId = shutdownTransport.sessionId;
         if (shutdownSessionId === undefined || shutdownSessionId === "") {
-          throw new Error("graceful-shutdown probe did not receive a session id");
+          throw new Error(
+            "graceful-shutdown probe did not receive a session id",
+          );
         }
         await waitForCondition(
-          () => server.stderr().includes(`session=${shutdownSessionId} event=init`),
+          () =>
+            server.stderr().includes(`session=${shutdownSessionId} event=init`),
           `shutdown session ${shutdownSessionId} initialization diagnostic`,
         );
 
         if (!server.child.kill("SIGTERM")) {
-          throw new Error("could not send SIGTERM to the HTTP MCP server child");
+          throw new Error(
+            "could not send SIGTERM to the HTTP MCP server child",
+          );
         }
         const exit = await waitForChildExit(server.child);
         if (exit.code !== 0 || exit.signal !== null) {
           throw new Error("HTTP MCP server did not exit cleanly after SIGTERM");
         }
         gracefulExit = true;
-        if (!server.stderr().includes(`session=${shutdownSessionId} event=close`)) {
-          throw new Error("SIGTERM did not log closure of the active HTTP session");
+        if (
+          !server.stderr().includes(`session=${shutdownSessionId} event=close`)
+        ) {
+          throw new Error(
+            "SIGTERM did not log closure of the active HTTP session",
+          );
         }
       } finally {
         await shutdownClient.close().catch(() => shutdownTransport.close());
       }
 
       if (server.stdout() !== "") {
-        throw new Error("HTTP server wrote protocol or diagnostic noise to stdout");
+        throw new Error(
+          "HTTP server wrote protocol or diagnostic noise to stdout",
+        );
       }
       if (!server.stderr().includes("tool=get_board_health")) {
-        throw new Error("get_board_health audit line was absent from HTTP stderr");
+        throw new Error(
+          "get_board_health audit line was absent from HTTP stderr",
+        );
       }
       assertTokenAbsent("HTTP stdout", server.stdout(), token);
       assertTokenAbsent("HTTP stderr", server.stderr(), token);
     } catch (error) {
       failure = error;
     } finally {
-      if (!gracefulExit && server.child.exitCode === null && server.child.signalCode === null) {
+      if (
+        !gracefulExit &&
+        server.child.exitCode === null &&
+        server.child.signalCode === null
+      ) {
         server.child.kill("SIGTERM");
         try {
           await waitForChildExit(server.child, 2_000);
@@ -222,7 +266,9 @@ describeLive("live MCP Streamable HTTP transport", () => {
         server.stdout(),
         `${server.stderr()}\n--- failure ---\n${safeError(failure)}`,
       );
-      throw new Error(`HTTP live journey failed; inspect redacted trace: ${path}`);
+      throw new Error(
+        `HTTP live journey failed; inspect redacted trace: ${path}`,
+      );
     }
   });
 });

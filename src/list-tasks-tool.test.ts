@@ -7,7 +7,8 @@ import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -65,9 +66,7 @@ afterEach(() => {
 
 describe("list_tasks", () => {
   it("returns an empty default page and drops undefined filters", async () => {
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json([]));
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(Response.json([]));
     const harness = await createHarness(
       parseConfig({ FUSION_TOKEN: "fake-token-marker" }),
       fetchMock,
@@ -143,7 +142,9 @@ describe("list_tasks", () => {
         tasks,
         pagination: { limit: 2, offset: 4 },
       });
-      expect(JSON.stringify(textResult(result))).not.toContain("internal-marker");
+      expect(JSON.stringify(textResult(result))).not.toContain(
+        "internal-marker",
+      );
       expect(JSON.stringify(textResult(result))).not.toContain(
         "full task body must not be exposed",
       );
@@ -171,9 +172,7 @@ describe("list_tasks", () => {
   });
 
   it("uses the configured default project for an offset beyond range", async () => {
-    const fetchMock = vi
-      .fn<FetchLike>()
-      .mockResolvedValue(Response.json([]));
+    const fetchMock = vi.fn<FetchLike>().mockResolvedValue(Response.json([]));
     const harness = await createHarness(
       parseConfig({
         FUSION_TOKEN: "fake-token-marker",

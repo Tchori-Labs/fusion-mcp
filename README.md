@@ -6,33 +6,58 @@ can run the board: watch it, triage, create tasks, comment on and steer running
 agents, and read logs.
 
 It is **governed by design**: there are deliberately **no** tools or workarounds
-to merge PRs, approve plans, publish work, change settings, delete/archive tasks,
-or restart the system. Fusion's automatic squash integration into `develop` is
-internal board execution, not an MCP merge capability; reviewed `develop` →
-`main` release PRs remain human-only. Writes are limited to task creation and
-communication. Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md)
-for the full contract.
+to merge PRs, approve plans, publish work, delete tasks, mutate settings outside
+a hard project allowlist, or restart the system. Fusion's automatic squash
+integration into `develop` is internal board execution, not an MCP merge
+capability; reviewed `develop` → `main` release PRs remain human-only. Writes are
+limited to the explicit task operations and project-settings allowlist below.
+Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md) for the full
+contract.
 
-> Status: **the executable scaffold, all read tools, and the governed
-> `create_task`, `comment_task`, `steer_task`, `pause_task`, and `unpause_task`
-> write tools are implemented.** Future FM-00x work is tracked in
-> [`briefs/`](./briefs) and integrated into `develop` through Fusion's automatic
-> squash integration.
+> Status: **the executable scaffold and all 20 governed tools are implemented,
+> including `update_project_settings`, `update_task`, and `archive_task`.**
+> Further work is integrated into `develop` through Fusion's automatic squash
+> integration.
+
+## Installation
+
+Requires Node.js 22 or newer.
+
+```bash
+pnpm add @tchori-labs/fusion-mcp
+```
+
+Or run it on demand without installing:
+
+```bash
+npx @tchori-labs/fusion-mcp --stdio
+```
+
+The package installs a `fusion-mcp` executable that speaks MCP over stdio by
+default, so most MCP clients can launch it directly — see
+[MCP client configuration](#mcp-client-configuration).
 
 ## Configuration
 
-All configuration is via environment variables:
+Point the server at **your Fusion instance** with `FUSION_BASE_URL` and
+authenticate with `FUSION_TOKEN`. All configuration is via environment
+variables:
 
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `FUSION_BASE_URL` | no | `http://127.0.0.1:4040` | Base URL of the Fusion daemon. |
-| `FUSION_TOKEN` | for non-health calls | — | Instance daemon bearer token (`fn_<hex>`). |
-| `FUSION_DEFAULT_PROJECT_ID` | no | — | Project used when a tool omits `projectId`. |
-| `PORT` | no | `4141` | HTTP transport port (loopback). |
-| `FUSION_MCP_ALLOWED_HOSTS` | no | — | Additional exact `Host` values trusted behind a tunnel. |
-| `FUSION_REQUEST_TIMEOUT_MS` | no | `15000` | Per-request timeout. |
+| Variable                         | Required             | Default                 | Meaning                                                     |
+| -------------------------------- | -------------------- | ----------------------- | ----------------------------------------------------------- |
+| `FUSION_BASE_URL`                | no                   | `http://127.0.0.1:4040` | Base URL of the Fusion daemon.                              |
+| `FUSION_TOKEN`                   | for non-health calls | —                       | Instance daemon bearer token (`fn_<hex>`).                  |
+| `FUSION_DEFAULT_PROJECT_ID`      | no                   | —                       | Project used when a tool omits `projectId`.                 |
+| `FUSION_CF_ACCESS_CLIENT_ID`     | with client secret   | —                       | Service-token client id sent to an authenticating edge.     |
+| `FUSION_CF_ACCESS_CLIENT_SECRET` | with client id       | —                       | Service-token client secret sent to an authenticating edge. |
+| `FUSION_USER_AGENT`              | no                   | —                       | Overrides the `User-Agent` on upstream board requests.      |
+| `PORT`                           | no                   | `4141`                  | HTTP transport port (loopback).                             |
+| `FUSION_MCP_ALLOWED_HOSTS`       | no                   | —                       | Additional exact `Host` values trusted behind a tunnel.     |
+| `FUSION_REQUEST_TIMEOUT_MS`      | no                   | `15000`                 | Per-request timeout.                                        |
 
-The token is read from the environment only and is never logged or returned.
+Credentials are read from the environment only and are never logged or returned.
+The Access client id and secret must be set together; blank values are treated as
+unset.
 
 ## Run modes
 
@@ -45,48 +70,96 @@ node dist/index.js --stdio     # explicit
 node dist/index.js --http      # serves http://127.0.0.1:$PORT/mcp
 ```
 
+For a board fronted by an authenticating edge or Zero Trust access proxy, set
+both `FUSION_CF_ACCESS_CLIENT_ID` and `FUSION_CF_ACCESS_CLIENT_SECRET`. The pair
+is sent on every upstream board request, including health checks. Set
+`FUSION_USER_AGENT` only when the edge policy requires a specific agent string.
+
 HTTP mode issues an `mcp-session-id` during initialization and reuses the same
 server transport for subsequent POST and GET/SSE requests. Clients can terminate
-their session with DELETE; SIGINT and SIGTERM stop the listener and close all
-remaining sessions gracefully. The listener remains loopback-only and validates
-exact `Host` values to prevent DNS rebinding.
+their session with DELETE. SIGINT and SIGTERM stop admission, drain in-flight
+requests under a bounded deadline, and then close sessions and lingering
+connections. The listener always binds to loopback; configured exact `Host`
+values prevent DNS rebinding but never change the bind interface.
 
-Register with Claude Code (stdio):
+## MCP client configuration
+
+Configure your MCP client to launch the server over stdio. With the package
+installed (or resolvable through `npx`), point it at your Fusion instance via
+the environment:
 
 ```json
 {
   "mcpServers": {
     "fusion": {
-      "command": "node",
-      "args": ["/path/to/fusion-mcp/dist/index.js", "--stdio"],
-      "env": { "FUSION_TOKEN": "fn_…" }
+      "command": "npx",
+      "args": ["-y", "@tchori-labs/fusion-mcp", "--stdio"],
+      "env": {
+        "FUSION_BASE_URL": "https://fusion.example.com",
+        "FUSION_TOKEN": "fn_…"
+      }
     }
   }
 }
 ```
 
+Contributors running from a local checkout can instead invoke the built entry
+point directly with `"command": "node"` and
+`"args": ["/path/to/fusion-mcp/dist/index.js", "--stdio"]`.
+
 ## Tools
 
 Implemented: `get_board_health` · `list_projects` · `read_project_settings` ·
 `list_tasks` · `get_task` · `get_task_logs` · `get_task_workflow_results` ·
-`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task`.
+`create_task` · `comment_task` · `steer_task` · `pause_task` · `unpause_task` ·
+`list_approvals` · `get_approval` · `list_missions` · `get_mission` ·
+`move_task` · `update_project_settings` · `update_task` · `archive_task`.
 
-### Governed task writes
+`read_project_settings` and the response from `update_project_settings` mask
+`daemonToken` and every nested key matching
+`/token|secret|passphrase|credential/i` with `[REDACTED]` before returning the
+settings payload. `get_task_logs` and `get_task_workflow_results` require `id`
+and accept optional `projectId` for task lookup; `get_task_logs` also accepts
+pagination bounds.
+
+### Governed writes
 
 - `create_task` requires `description` and accepts only `title`, `column`,
   `priority`, `dependencies`, `workflowId`, `baseBranch`, and `projectId` as
   optional fields. Resolved project scope is sent in the POST body, never the
   query string.
-- `comment_task` requires `id` and non-empty `text`, with optional `author`.
-- `steer_task` requires `id` and `text` of 1–2000 characters.
-- `pause_task` and `unpause_task` require only `id` and send body-free POSTs to
-  the corresponding encoded task endpoint.
+- `comment_task` requires `id` and non-empty `text`, with optional `author` and
+  `projectId`.
+- `steer_task` requires `id` and `text` of 1–2000 characters, with optional
+  `projectId`.
+- `pause_task` and `unpause_task` require `id` and accept optional `projectId`.
+  They send the resolved project scope in the POST body, while an unresolved
+  scope preserves the body-free request.
+- `move_task` requires `id` and `column`, accepts optional `projectId`, and is
+  limited to moving a task between board columns for reprioritisation.
+- `update_task` requires `id` plus at least one of `dependencies`, `priority`,
+  `title`, or `description`; no other task field is accepted.
+- `archive_task` requires `id` and is limited to recoverable board-hygiene
+  archiving. Delete and bulk mutation remain unavailable.
+- `update_project_settings` accepts one or more of `mergeStrategy`,
+  `mergeConflictStrategy`, `integrationBranch`, `autoMerge`, `pushAfterMerge`,
+  `directMergeCommitStrategy`, `autoArchiveDuplicateTasksEnabled`,
+  `githubTrackingDefaultRepo`, and the strengthen-only
+  `planApprovalMode: "require-all"`. Any other key is rejected before the request
+  is sent, and the resolved project scope is sent as the `projectId` query
+  parameter on `PUT /api/settings`.
 
-Project-scoped read tools take an optional `projectId`; `get_board_health` and
-`list_projects` are instance-scoped. Write tools are limited to governed task
-creation and communication. Audits contain only safe metadata (task ids and
-create-task title/column), never message bodies, project ids, or tokens. Full
-parameter and endpoint mapping is in [`SPEC.md`](./SPEC.md#tool-catalogue).
+Project- and task-scoped tools take an optional `projectId`; `get_board_health`
+and `list_projects` are instance-scoped. Reads, `update_project_settings`,
+`update_task`, and `archive_task` send resolved scope in the query string;
+task creation, communication, pause/unpause, and movement send it in the body.
+Write tools remain limited to the governed operations above: task creation,
+communication, board reprioritisation, task-metadata edits, recoverable
+archiving, and the project-settings allowlist. Audits contain only safe
+metadata selected per tool, such as task or project ids, create-task titles,
+column names, and pagination bounds; full message bodies and tokens are never
+logged. Full parameter and endpoint mapping is in
+[`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Branching & releases
 
@@ -105,9 +178,10 @@ Requires Node 22 (`.nvmrc`) and pnpm.
 ```bash
 pnpm install
 pnpm lint         # eslint (flat config)
-pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
-pnpm build        # tsc → dist/
+pnpm typecheck      # tsc --noEmit
+pnpm test           # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
+pnpm test:stability # 10 fresh-process hermetic repetitions for flake detection
+pnpm build          # tsc → dist/
 pnpm dev          # tsx src/index.ts --stdio
 ```
 
@@ -121,7 +195,8 @@ compatibility and deprecation policy.
 CI runs all of the above as the required **Build & Test** check. The mandatory
 suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
 `pnpm test` and may run only as opt-in live checks through a separate, explicit
-Vitest config that does not load the guard.
+Vitest config that does not load the guard. For repeat-run flake detection, use
+`pnpm test:stability` and follow the [stability burn-in runbook](./docs/stability.md).
 
 ### Live integration suite (opt-in)
 

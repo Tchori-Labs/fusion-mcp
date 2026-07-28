@@ -2,14 +2,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { parseConfig, type Config } from "./config.js";
+import { parseConfig, type Config, type Environment } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
 const secretMarker = "distinctive-fake-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -112,6 +113,75 @@ describe("get_task_logs", () => {
     }
   });
 
+  it.each([
+    {
+      label: "explicit project over configured default",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-201", projectId: "explicit-project" },
+      expectedProjectId: "explicit-project",
+    },
+    {
+      label: "configured default project",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-201" },
+      expectedProjectId: "default-project",
+    },
+    {
+      label: "server default project",
+      env: { FUSION_TOKEN: secretMarker },
+      arguments: { id: "FN-201" },
+      expectedProjectId: undefined,
+    },
+  ] satisfies Array<{
+    label: string;
+    env: Environment;
+    arguments: { id: string; projectId?: string };
+    expectedProjectId: string | undefined;
+  }>)(
+    "applies $label scope to the logs request",
+    async ({ env, arguments: toolArguments, expectedProjectId }) => {
+      const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
+        Response.json([], {
+          headers: { "X-Total-Count": "0", "X-Has-More": "false" },
+        }),
+      );
+      const harness = await createHarness(parseConfig(env), fetchMock);
+
+      try {
+        const result = await harness.client.callTool({
+          name: "get_task_logs",
+          arguments: toolArguments,
+        });
+
+        expect(result.isError).not.toBe(true);
+        const url = requestedUrl(fetchMock);
+        expect(url.searchParams.get("projectId")).toBe(
+          expectedProjectId ?? null,
+        );
+        expect(url.searchParams.has("projectId")).toBe(
+          expectedProjectId !== undefined,
+        );
+        const auditOutput = vi
+          .mocked(process.stderr.write)
+          .mock.calls.map(([line]) => String(line))
+          .join("");
+        expect(auditOutput).toContain(
+          `projectIdApplied=${String(expectedProjectId !== undefined)}`,
+        );
+        expect(auditOutput).not.toContain("explicit-project");
+        expect(auditOutput).not.toContain("default-project");
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
   it("parses a true has-more header and sends default bounds", async () => {
     const fetchMock = vi.fn<FetchLike>().mockResolvedValue(
       Response.json([{ id: 1 }], {
@@ -148,7 +218,9 @@ describe("get_task_logs", () => {
   ])("returns %s without error", async (_name, offset) => {
     const fetchMock = vi
       .fn<FetchLike>()
-      .mockResolvedValue(Response.json([], { headers: { "X-Total-Count": "0" } }));
+      .mockResolvedValue(
+        Response.json([], { headers: { "X-Total-Count": "0" } }),
+      );
     const harness = await createHarness(
       parseConfig({ FUSION_TOKEN: secretMarker }),
       fetchMock,
@@ -228,6 +300,35 @@ describe("get_task_logs", () => {
       expect(JSON.stringify(result)).not.toContain(secretMarker);
       expect(fetchMock).not.toHaveBeenCalled();
       expect(process.stderr.write).toHaveBeenCalledOnce();
+      expect(process.stderr.write).toHaveBeenCalledWith(
+        expect.stringMatching(/tool=get_task_logs validation=failed\n$/),
+      );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("rejects a non-string projectId with the governed validation envelope", async () => {
+    const fetchMock = vi.fn<FetchLike>();
+    const harness = await createHarness(
+      parseConfig({ FUSION_TOKEN: secretMarker }),
+      fetchMock,
+    );
+
+    try {
+      const result = await harness.client.callTool({
+        name: "get_task_logs",
+        arguments: { id: "FN-204", projectId: 123 },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textResult(result)).toMatchObject({
+        error: {
+          code: "validation",
+          details: [{ path: ["projectId"] }],
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
       expect(process.stderr.write).toHaveBeenCalledWith(
         expect.stringMatching(/tool=get_task_logs validation=failed\n$/),
       );

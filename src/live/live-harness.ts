@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { createServer, createConnection } from "node:net";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, type SuiteCollector, type SuiteFactory } from "vitest";
@@ -18,23 +18,33 @@ function configuredValue(name: string): string | undefined {
 
 export function liveSkipReason(): string | undefined {
   const unmet: string[] = [];
-  if (!enabledValues.has(configuredValue("FUSION_MCP_LIVE")?.toLowerCase() ?? "")) {
+  if (
+    !enabledValues.has(configuredValue("FUSION_MCP_LIVE")?.toLowerCase() ?? "")
+  ) {
     unmet.push("FUSION_MCP_LIVE must be set to one of: 1, true, yes, on");
   }
   if (configuredValue("FUSION_BASE_URL") === undefined) {
     unmet.push("FUSION_BASE_URL must name the reachable Fusion instance");
   }
   if (configuredValue("FUSION_TOKEN") === undefined) {
-    unmet.push("FUSION_TOKEN must be supplied from the environment or secret store");
+    unmet.push(
+      "FUSION_TOKEN must be supplied from the environment or secret store",
+    );
   }
   return unmet.length === 0 ? undefined : unmet.join("; ");
 }
 
-export function isLiveEnabled(): boolean {
-  return liveSkipReason() === undefined;
+export function edgeCredentialsConfigured(): boolean {
+  return (
+    configuredValue("FUSION_CF_ACCESS_CLIENT_ID") !== undefined &&
+    configuredValue("FUSION_CF_ACCESS_CLIENT_SECRET") !== undefined
+  );
 }
 
-export function describeLive(name: string, factory: SuiteFactory): SuiteCollector {
+export function describeLive(
+  name: string,
+  factory: SuiteFactory,
+): SuiteCollector {
   const reason = liveSkipReason();
   if (reason !== undefined && !reportedSkipReasons.has(reason)) {
     reportedSkipReasons.add(reason);
@@ -53,16 +63,30 @@ export function liveIterations(): number {
   }
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed)) {
-    throw new Error("FUSION_MCP_LIVE_ITERATIONS must be a safe positive integer");
+    throw new Error(
+      "FUSION_MCP_LIVE_ITERATIONS must be a safe positive integer",
+    );
   }
   return parsed;
 }
 
-export function redactToken(text: string, token = configuredValue("FUSION_TOKEN")): string {
-  if (token === undefined) {
-    return text;
-  }
-  return text.replaceAll(token, REDACTION_MARKER);
+export function redactToken(
+  text: string,
+  token = configuredValue("FUSION_TOKEN"),
+): string {
+  const sensitiveValues = [
+    token,
+    configuredValue("FUSION_CF_ACCESS_CLIENT_ID"),
+    configuredValue("FUSION_CF_ACCESS_CLIENT_SECRET"),
+  ]
+    .filter((value): value is string => value !== undefined)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .sort((left, right) => right.length - left.length);
+
+  return sensitiveValues.reduce(
+    (redacted, value) => redacted.replaceAll(value, REDACTION_MARKER),
+    text,
+  );
 }
 
 export async function writeFailureTrace(
@@ -70,15 +94,21 @@ export async function writeFailureTrace(
   capturedStdout: string,
   capturedStderr: string,
 ): Promise<string> {
-  const safeName = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "live";
+  const safeName =
+    name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "live";
   const path = join(
     tmpdir(),
     `fusion-mcp-${safeName}-${process.pid}-${Date.now()}.log`,
   );
   const trace = redactToken(
-    [`name=${safeName}`, "--- stdout ---", capturedStdout, "--- stderr ---", capturedStderr, ""].join(
-      "\n",
-    ),
+    [
+      `name=${safeName}`,
+      "--- stdout ---",
+      capturedStdout,
+      "--- stderr ---",
+      capturedStderr,
+      "",
+    ].join("\n"),
   );
   await writeFile(path, trace, { encoding: "utf8", mode: 0o600 });
   process.stderr.write(`fusion-mcp live failure trace (redacted): ${path}\n`);
@@ -137,7 +167,9 @@ export async function waitForLoopbackListener(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error("HTTP MCP server exited before its listener became ready");
+      throw new Error(
+        "HTTP MCP server exited before its listener became ready",
+      );
     }
     const connected = await new Promise<boolean>((resolve) => {
       const socket = createConnection({ host: "127.0.0.1", port });
@@ -153,6 +185,57 @@ export async function waitForLoopbackListener(
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error("timed out waiting for the HTTP MCP loopback listener");
+}
+
+export async function assertNoNonLoopbackListener(
+  port: number,
+  timeoutMs = 250,
+): Promise<void> {
+  const addresses = [
+    ...new Set(
+      Object.values(networkInterfaces())
+        .flatMap((entries) => entries ?? [])
+        .filter((entry) => entry.family === "IPv4" && !entry.internal)
+        .map((entry) => entry.address),
+    ),
+  ];
+
+  if (addresses.length === 0) {
+    process.stderr.write(
+      "fusion-mcp live bind probe skipped: no non-internal IPv4 address is available.\n",
+    );
+    return;
+  }
+
+  for (const address of addresses) {
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: address, port });
+      let settled = false;
+      const finish = (error?: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        if (error === undefined) {
+          resolve();
+        } else {
+          reject(error);
+        }
+      };
+      const timer = setTimeout(() => finish(), timeoutMs);
+      timer.unref();
+      socket.once("connect", () => {
+        finish(
+          new Error(
+            `HTTP MCP server accepted a non-loopback connection on ${address}:${port}`,
+          ),
+        );
+      });
+      socket.once("error", () => finish());
+    });
+  }
 }
 
 export interface ChildExit {
@@ -173,7 +256,10 @@ export async function waitForChildExit(
       reject(new Error("timed out waiting for the MCP server child to exit"));
     }, timeoutMs);
     timer.unref();
-    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+    const onExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
       cleanup();
       resolve({ code, signal });
     };

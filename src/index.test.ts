@@ -1,4 +1,14 @@
+import {
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import type { RequestListener } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseConfig } from "./config.js";
 import {
   isDirectExecution,
+  LOOPBACK_BIND_HOST,
   main,
   runCli,
   selectMode,
@@ -84,6 +95,7 @@ function httpFactoryHarness() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("mode selection", () => {
@@ -100,9 +112,7 @@ describe("mode selection", () => {
     expect(() => selectMode(["--stdio", "--http"])).toThrow(
       "--stdio and --http cannot be used together",
     );
-    expect(() => selectMode(["--other"])).toThrow(
-      "unknown argument: --other",
-    );
+    expect(() => selectMode(["--other"])).toThrow("unknown argument: --other");
     expect(() => selectMode(["--stdio", "--other"])).toThrow(
       "unknown argument: --other",
     );
@@ -111,6 +121,27 @@ describe("mode selection", () => {
   it("recognizes that a test import is not direct CLI execution", () => {
     expect(
       isDirectExecution(import.meta.url, ["node", "/different/module.js"]),
+    ).toBe(false);
+  });
+
+  it("recognizes execution through a package-manager bin symlink", () => {
+    const directory = mkdtempSync(join(tmpdir(), "fusion-mcp-bin-"));
+    try {
+      const entrypoint = join(directory, "index.js");
+      writeFileSync(entrypoint, "");
+      const binSymlink = join(directory, "fusion-mcp");
+      symlinkSync(entrypoint, binSymlink);
+      const moduleUrl = pathToFileURL(realpathSync(entrypoint)).href;
+
+      expect(isDirectExecution(moduleUrl, ["node", binSymlink])).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not treat a nonexistent entry path as direct execution", () => {
+    expect(
+      isDirectExecution(import.meta.url, ["node", "/does/not/exist.js"]),
     ).toBe(false);
   });
 });
@@ -149,6 +180,33 @@ describe("main", () => {
     );
     expect(stdout).not.toHaveBeenCalled();
   });
+
+  it("surfaces an incomplete Access pair as a clear startup error", async () => {
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_ID", "access-client-marker");
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_SECRET", "");
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+
+    await expect(runCli([], { stderr })).resolves.toBe(1);
+
+    expect(stderr.write).toHaveBeenCalledWith(
+      "fusion-mcp: FUSION_CF_ACCESS_CLIENT_SECRET must be set when FUSION_CF_ACCESS_CLIENT_ID is set\n",
+    );
+  });
+
+  it("never includes an Access secret in startup error output", async () => {
+    const marker = "distinctive-access-secret-marker";
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_ID", "");
+    vi.stubEnv("FUSION_CF_ACCESS_CLIENT_SECRET", marker);
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+
+    await expect(runCli([], { stderr })).resolves.toBe(1);
+
+    const output = stderr.write.mock.calls.join(" ");
+    expect(output).toBe(
+      "fusion-mcp: FUSION_CF_ACCESS_CLIENT_ID must be set when FUSION_CF_ACCESS_CLIENT_SECRET is set\n",
+    );
+    expect(output).not.toContain(marker);
+  });
 });
 
 describe("session-aware HTTP mode", () => {
@@ -163,7 +221,7 @@ describe("session-aware HTTP mode", () => {
 
     expect(http.listen).toHaveBeenCalledWith(
       4242,
-      "127.0.0.1",
+      LOOPBACK_BIND_HOST,
       expect.any(Function),
     );
     expect(http.once).toHaveBeenCalledWith("error", expect.any(Function));

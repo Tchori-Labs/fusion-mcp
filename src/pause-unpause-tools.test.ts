@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { parseConfig, type Config } from "./config.js";
+import { parseConfig, type Config, type Environment } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import { buildServer } from "./index.js";
 
@@ -10,7 +10,8 @@ const secretMarker = "distinctive-pause-token-marker";
 const unsafeUpstreamMarker = "unsafe-upstream-response-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -106,7 +107,7 @@ describe.each([
       expect(lines).toHaveLength(1);
       expect(lines[0]).toMatch(
         new RegExp(
-          `^\\[\\d{4}-\\d{2}-\\d{2}T[^\\]]+Z\\] tool=${tool} id=FN 14/\\.\\./x\\n$`,
+          `^\\[\\d{4}-\\d{2}-\\d{2}T[^\\]]+Z\\] tool=${tool} id=FN 14/\\.\\./x projectIdApplied=false\\n$`,
         ),
       );
       expect(lines[0]).not.toContain(secretMarker);
@@ -117,28 +118,88 @@ describe.each([
   });
 
   it.each([
+    {
+      label: "explicit project over configured default",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-014", projectId: "explicit-project" },
+      expectedProjectId: "explicit-project",
+    },
+    {
+      label: "configured default project",
+      env: {
+        FUSION_TOKEN: secretMarker,
+        FUSION_DEFAULT_PROJECT_ID: "default-project",
+      },
+      arguments: { id: "FN-014" },
+      expectedProjectId: "default-project",
+    },
+  ] satisfies Array<{
+    label: string;
+    env: Environment;
+    arguments: { id: string; projectId?: string };
+    expectedProjectId: string;
+  }>)(
+    "posts $label scope in the request body",
+    async ({ env, arguments: toolArguments, expectedProjectId }) => {
+      const fetchMock = vi
+        .fn<FetchLike>()
+        .mockResolvedValue(Response.json({ id: "FN-014" }));
+      const harness = await createHarness(parseConfig(env), fetchMock);
+
+      try {
+        const result = await harness.client.callTool({
+          name: tool,
+          arguments: toolArguments,
+        });
+
+        expect(result.isError).not.toBe(true);
+        const init = fetchMock.mock.calls[0]?.[1];
+        expect(init?.body).toBeDefined();
+        expect(JSON.parse(String(init?.body))).toEqual({
+          projectId: expectedProjectId,
+        });
+        expect(new Headers(init?.headers).get("content-type")).toBe(
+          "application/json",
+        );
+        const audit = auditLines().join("");
+        expect(audit).toContain("projectIdApplied=true");
+        expect(audit).not.toContain("explicit-project");
+        expect(audit).not.toContain("default-project");
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
+  it.each([
     { label: "missing", arguments: {} },
     { label: "empty", arguments: { id: "" } },
-  ])("rejects a $label id before fetch", async ({ arguments: toolArguments }) => {
-    const fetchMock = vi.fn<FetchLike>();
-    const harness = await createHarness(
-      parseConfig({ FUSION_TOKEN: secretMarker }),
-      fetchMock,
-    );
+  ])(
+    "rejects a $label id before fetch",
+    async ({ arguments: toolArguments }) => {
+      const fetchMock = vi.fn<FetchLike>();
+      const harness = await createHarness(
+        parseConfig({ FUSION_TOKEN: secretMarker }),
+        fetchMock,
+      );
 
-    try {
-      const result = await harness.client.callTool({
-        name: tool,
-        arguments: toolArguments,
-      });
+      try {
+        const result = await harness.client.callTool({
+          name: tool,
+          arguments: toolArguments,
+        });
 
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result).toLowerCase()).toContain("id");
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      await harness.close();
-    }
-  });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result).toLowerCase()).toContain("id");
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("surfaces non-2xx failures without upstream content or secrets", async () => {
     const fetchMock = vi
@@ -166,7 +227,7 @@ describe.each([
 });
 
 describe("lifecycle tool governance", () => {
-  it("registers pause and unpause without destructive or system-control tools", async () => {
+  it("registers only the approved archive exception among prohibited names", async () => {
     const fetchMock = vi.fn<FetchLike>();
     const harness = await createHarness(parseConfig({}), fetchMock);
 
@@ -178,11 +239,18 @@ describe("lifecycle tool governance", () => {
 
       expect(names).toContain("pause_task");
       expect(names).toContain("unpause_task");
-      expect(names.filter((name) => prohibited.test(name))).toEqual([]);
+      // archive_task is the sole exception approved by the 2026-07-21
+      // governance-surface expansion recorded in issue #88.
+      expect(names.filter((name) => prohibited.test(name))).toEqual([
+        "archive_task",
+      ]);
 
       for (const name of ["pause_task", "unpause_task"]) {
         const tool = tools.find((candidate) => candidate.name === name);
-        expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(["id"]);
+        expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual([
+          "id",
+          "projectId",
+        ]);
         expect(tool?.inputSchema.required).toEqual(["id"]);
       }
       expect(fetchMock).not.toHaveBeenCalled();

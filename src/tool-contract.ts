@@ -22,8 +22,8 @@ export const SPEC_TOOL_INPUT_PROPERTIES = {
     "includeArchived",
   ],
   get_task: ["id", "projectId"],
-  get_task_logs: ["id", "limit", "offset"],
-  get_task_workflow_results: ["id"],
+  get_task_logs: ["id", "projectId", "limit", "offset"],
+  get_task_workflow_results: ["id", "projectId"],
   read_project_settings: ["projectId"],
   create_task: [
     "description",
@@ -35,15 +35,25 @@ export const SPEC_TOOL_INPUT_PROPERTIES = {
     "baseBranch",
     "projectId",
   ],
-  comment_task: ["id", "text", "author"],
-  steer_task: ["id", "text"],
-  pause_task: ["id"],
-  unpause_task: ["id"],
+  comment_task: ["id", "text", "author", "projectId"],
+  steer_task: ["id", "text", "projectId"],
+  pause_task: ["id", "projectId"],
+  unpause_task: ["id", "projectId"],
   list_approvals: ["projectId"],
   get_approval: ["id", "projectId"],
   list_missions: ["projectId", "includeDrafts"],
   get_mission: ["id", "projectId"],
   move_task: ["id", "column", "projectId"],
+  update_project_settings: ["settings", "projectId"],
+  update_task: [
+    "id",
+    "title",
+    "description",
+    "priority",
+    "dependencies",
+    "projectId",
+  ],
+  archive_task: ["id", "projectId"],
 } as const;
 
 export const SPEC_TOOL_CATALOGUE = Object.freeze(
@@ -131,7 +141,8 @@ export async function generateToolManifest(
   config: Config = parseConfig({}),
   fetch: FetchLike = rejectNetworkFetch,
 ): Promise<ToolContractManifest> {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({
     name: "fusion-mcp-tool-contract",
@@ -621,7 +632,12 @@ function compareSchema(
     if (before === undefined || after === undefined) {
       if (stableValue(before) !== stableValue(after)) {
         result.breaking.push(
-          change("schema-changed", tool, propertyPath, "property schema changed"),
+          change(
+            "schema-changed",
+            tool,
+            propertyPath,
+            "property schema changed",
+          ),
         );
       }
     } else {
@@ -686,7 +702,9 @@ function compareSchema(
         removed ? "constraint-loosened" : "constraint-tightened",
         tool,
         `${path}.pattern`,
-        removed ? "pattern constraint was removed" : "pattern constraint changed",
+        removed
+          ? "pattern constraint was removed"
+          : "pattern constraint changed",
       ),
     );
   }
@@ -706,7 +724,12 @@ function compareSchema(
     compareSchema(baselineItems, candidateItems, tool, `${path}.items`, result);
   } else if (stableValue(baseline.items) !== stableValue(candidate.items)) {
     result.breaking.push(
-      change("schema-changed", tool, `${path}.items`, "array item schema changed"),
+      change(
+        "schema-changed",
+        tool,
+        `${path}.items`,
+        "array item schema changed",
+      ),
     );
   }
 
@@ -841,8 +864,12 @@ export function diffToolContract(
     additive: [],
   };
   const governedNames = new Set<string>(SPEC_TOOL_CATALOGUE);
-  const baselineByName = new Map(baseline.tools.map((tool) => [tool.name, tool]));
-  const candidateByName = new Map(candidate.tools.map((tool) => [tool.name, tool]));
+  const baselineByName = new Map(
+    baseline.tools.map((tool) => [tool.name, tool]),
+  );
+  const candidateByName = new Map(
+    candidate.tools.map((tool) => [tool.name, tool]),
+  );
 
   if (baseline.manifestVersion !== candidate.manifestVersion) {
     result.breaking.push(

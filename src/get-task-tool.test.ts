@@ -17,7 +17,8 @@ import {
 const secretMarker = "distinctive-fake-secret-marker";
 
 async function createHarness(config: Config, fetch: FetchLike) {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const server = buildServer(config, { fetch });
   const client = new Client({ name: "fusion-mcp-test", version: "1.0.0" });
 
@@ -137,8 +138,7 @@ describe("HTTP trusted hosts", () => {
 
     const handle = await startHttpServer(parseConfig({ PORT: "4242" }), {
       env: {
-        FUSION_MCP_ALLOWED_HOSTS:
-          "mcp.example.test,mcp-alt.example.test:8443",
+        FUSION_MCP_ALLOWED_HOSTS: "mcp.example.test,mcp-alt.example.test:8443",
       },
       httpServerFactory: http.factory,
       httpTransportFactory,

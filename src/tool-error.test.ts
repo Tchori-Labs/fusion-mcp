@@ -25,10 +25,7 @@ function envelope(result: CallToolResult): ToolErrorEnvelope {
   return JSON.parse(item.text) as ToolErrorEnvelope;
 }
 
-function fusionError(
-  kind: FusionErrorKind,
-  status?: number,
-): FusionError {
+function fusionError(kind: FusionErrorKind, status?: number): FusionError {
   return new FusionError(`Safe ${kind} failure`, {
     method: "GET",
     path: "/api/tasks/FN-1",

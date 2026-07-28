@@ -8,6 +8,9 @@ export interface Config {
   baseUrl: string;
   token?: string;
   defaultProjectId?: string;
+  cfAccessClientId?: string;
+  cfAccessClientSecret?: string;
+  userAgent?: string;
   port: number;
   requestTimeoutMs: number;
 }
@@ -26,6 +29,17 @@ function optionalValue(value: string | undefined): string | undefined {
   return normalized === "" ? undefined : normalized;
 }
 
+function optionalHeaderValue(
+  name: string,
+  value: string | undefined,
+): string | undefined {
+  const normalized = optionalValue(value);
+  if (normalized !== undefined && /[\u0000-\u001f\u007f]/u.test(value ?? "")) {
+    throw new Error(`${name} must not contain control characters`);
+  }
+  return normalized;
+}
+
 function parseBaseUrl(value: string | undefined): string {
   const candidate = value === undefined ? DEFAULT_BASE_URL : value.trim();
 
@@ -36,7 +50,10 @@ function parseBaseUrl(value: string | undefined): string {
     throw new Error("FUSION_BASE_URL must be a valid HTTP or HTTPS URL");
   }
 
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    !parsed.hostname
+  ) {
     throw new Error("FUSION_BASE_URL must be a valid HTTP or HTTPS URL");
   }
 
@@ -68,11 +85,37 @@ function parseInteger(
 export function parseConfig(env: Environment = process.env): Config {
   const token = optionalValue(env.FUSION_TOKEN);
   const defaultProjectId = optionalValue(env.FUSION_DEFAULT_PROJECT_ID);
+  const cfAccessClientId = optionalHeaderValue(
+    "FUSION_CF_ACCESS_CLIENT_ID",
+    env.FUSION_CF_ACCESS_CLIENT_ID,
+  );
+  const cfAccessClientSecret = optionalHeaderValue(
+    "FUSION_CF_ACCESS_CLIENT_SECRET",
+    env.FUSION_CF_ACCESS_CLIENT_SECRET,
+  );
+  const userAgent = optionalHeaderValue(
+    "FUSION_USER_AGENT",
+    env.FUSION_USER_AGENT,
+  );
+
+  if (cfAccessClientId === undefined && cfAccessClientSecret !== undefined) {
+    throw new Error(
+      "FUSION_CF_ACCESS_CLIENT_ID must be set when FUSION_CF_ACCESS_CLIENT_SECRET is set",
+    );
+  }
+  if (cfAccessClientSecret === undefined && cfAccessClientId !== undefined) {
+    throw new Error(
+      "FUSION_CF_ACCESS_CLIENT_SECRET must be set when FUSION_CF_ACCESS_CLIENT_ID is set",
+    );
+  }
 
   return {
     baseUrl: parseBaseUrl(env.FUSION_BASE_URL),
     ...(token === undefined ? {} : { token }),
     ...(defaultProjectId === undefined ? {} : { defaultProjectId }),
+    ...(cfAccessClientId === undefined ? {} : { cfAccessClientId }),
+    ...(cfAccessClientSecret === undefined ? {} : { cfAccessClientSecret }),
+    ...(userAgent === undefined ? {} : { userAgent }),
     port: parseInteger("PORT", env.PORT, DEFAULT_PORT, 65_535),
     requestTimeoutMs: parseInteger(
       "FUSION_REQUEST_TIMEOUT_MS",

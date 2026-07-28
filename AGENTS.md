@@ -6,10 +6,29 @@ It is the contract for how work happens in this repo.
 ## What this project is
 
 A thin, **governed** MCP server wrapping the Fusion agent-board REST API. Read
-[`SPEC.md`](./SPEC.md) first — especially the **Governance invariants**. The
-value of this project is that it *cannot* do certain things; do not add tools or
-code paths that merge PRs, approve plans, change settings, delete/archive tasks,
-restart the system, or publish anything outside the board.
+[`SPEC.md`](./SPEC.md) first — its **Governance invariants** are canonical. The
+value of this project is that it _cannot_ do certain things; do not add tools or
+code paths that merge PRs, approve plans, delete tasks or perform any
+irreversible or bulk destructive operation, mutate settings outside the hard
+allowlist, restart or control the system, or publish anything outside the board.
+Settings writes and task archiving have exactly two narrow exceptions:
+`update_project_settings`, constrained to the hard-allowlisted keys in SPEC.md
+governance invariant 2 (every other key is structurally unreachable), and
+`archive_task`, permitted solely as recoverable board hygiene under invariant 3
+(delete and bulk mutation remain excluded). No broader capability is authorized;
+adding a tool that violates invariants 1–5 is a spec change, not a feature.
+
+## Branch model & releases
+
+- Integration branch is `develop`. Fusion cuts each task's worktree from
+  `develop` and squash-merges it back to `develop` automatically — you don't
+  open PRs or choose the target branch.
+- `main` is release-only and protected. It changes solely via a reviewed
+  `develop → main` PR + version tag at release time.
+- Do NOT assume `main` is the working trunk. New CI, scripts, docs, and release
+  tooling must treat `develop` as the day-to-day branch and `main` as the
+  released line (e.g. CI runs on both; dev-status links point at `develop`).
+- Hotfixes that must skip `develop` are created as tasks with `baseBranch=main`.
 
 ## Branch model & releases
 
@@ -25,16 +44,12 @@ restart the system, or publish anything outside the board.
 
 ## Project layout
 
-Target layout — FM-000 establishes it; until then only the contract files
-(SPEC, briefs, CI) exist:
-
 ```
 src/
   config.ts            env parsing/validation → Config; requireToken()
   fusion-client.ts     FusionClient: fetch wrapper (auth, timeout, errors)
   index.ts             CLI entry; buildServer(); auditLog(); stdio + http
   *.test.ts            vitest, colocated with the code they test
-briefs/                task briefs (FM-00x) — what to build next
 .github/workflows/ci.yml   required "Build & Test" check
 SPEC.md  README.md  AGENTS.md
 ```
@@ -44,13 +59,23 @@ SPEC.md  README.md  AGENTS.md
 ```bash
 pnpm install --frozen-lockfile
 pnpm lint
+pnpm format:check
+pnpm knip
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm pkgcheck
 ```
 
 Node 22 (`.nvmrc`), pnpm as the package manager. Do not switch package managers
 or add a bundler.
+
+Husky hooks run lint-staged (Prettier + ESLint) on commit and
+`typecheck && test` on push — never bypass them (`--no-verify` is forbidden).
+`pnpm knip` must stay clean: remove dead exports and unused dependencies your
+change leaves behind (or make the export internal) rather than ignoring them.
+`pnpm pkgcheck` validates the packaged tarball (publint + a stdio smoke of the
+installed binary).
 
 ## Code style
 
@@ -68,7 +93,8 @@ or add a bundler.
   results. Reuse `FusionError`.
 - **Audit every tool call** via `auditLog(tool, summary)` with a non-sensitive
   argument summary. Diagnostics go to **stderr** (stdout is the stdio protocol).
-- Match the existing formatting; `pnpm lint` is authoritative.
+- Formatting is Prettier-enforced (`pnpm format`); `pnpm lint` and
+  `pnpm format:check` are authoritative.
 
 ## Tests are required for every change
 

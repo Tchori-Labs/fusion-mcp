@@ -1,0 +1,128 @@
+# This path-filtered job must NEVER be added to branch protection because skipped
+# required checks strand unrelated pull requests. It must never be renamed
+# "Build & Test" or take over that required check identity.
+name: Pack smoke
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref containing the package to smoke-test"
+        required: false
+        type: string
+        default: ""
+  pull_request:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - tsconfig.build.json
+      - src/index.ts
+      - .github/workflows/pack-smoke.yml
+      - .github/workflows/publish.yml
+
+permissions:
+  contents: read
+
+jobs:
+  pack-smoke:
+    name: Pack smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Pack package
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          pnpm pack --pack-destination "$RUNNER_TEMP/pack"
+
+      - name: Install packed artifact in clean project
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          npm init -y
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/pack/*.tgz
+
+      - name: Boot installed bin and initialize MCP
+        env:
+          FUSION_BASE_URL: "http://127.0.0.1:9"
+        run: |
+          cd "$RUNNER_TEMP/smoke"
+          node --input-type=module <<'NODE'
+          import { spawn } from "node:child_process";
+
+          const child = spawn("./node_modules/.bin/fusion-mcp", ["--stdio"], {
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+
+          await new Promise((resolve, reject) => {
+            let stdout = "";
+            let settled = false;
+            const fail = (error) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              reject(error);
+            };
+            const timeout = setTimeout(() => {
+              child.kill("SIGTERM");
+              fail(new Error("installed bin did not initialize within 20 seconds"));
+            }, 20_000);
+
+            child.once("error", (error) => {
+              fail(new Error(`failed to spawn installed bin: ${error.message}`));
+            });
+            child.once("exit", (code, signal) => {
+              fail(new Error(`installed bin exited early (code=${code}, signal=${signal})`));
+            });
+            child.stdout.on("data", (chunk) => {
+              stdout += chunk.toString();
+              const lines = stdout.split("\n");
+              stdout = lines.pop() ?? "";
+              for (const line of lines) {
+                if (line.trim() === "") continue;
+                let message;
+                try {
+                  message = JSON.parse(line);
+                } catch {
+                  fail(new Error("installed bin wrote invalid JSON to stdout"));
+                  return;
+                }
+                if (message.id !== 1) continue;
+                if (message.result?.serverInfo?.name !== "fusion-mcp") {
+                  fail(new Error("initialize response had unexpected serverInfo"));
+                  return;
+                }
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                console.error("pack smoke: initialize OK");
+                child.stdin.end();
+                child.kill("SIGTERM");
+                resolve();
+                return;
+              }
+            });
+
+            child.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"pack-smoke","version":"0.0.0"}}}\n');
+          });
+          NODE

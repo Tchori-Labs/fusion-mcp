@@ -10,5 +10,5 @@
     "noEmit": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/live/**"]
+  "exclude": ["src/**/*.test.ts", "src/live/**", "src/test-setup/**"]
 }

@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { createServer } from "node:http";
-import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -19,15 +24,9 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { parseConfig, type Config, type Environment } from "./config.js";
-import {
-  FusionClient,
-  FusionError,
-  type FetchLike,
-} from "./fusion-client.js";
-import {
-  formatValidationError,
-  withToolErrorEnvelope,
-} from "./tool-error.js";
+import { FusionClient, FusionError, type FetchLike } from "./fusion-client.js";
+import { redactSettings } from "./redact-settings.js";
+import { formatValidationError, withToolErrorEnvelope } from "./tool-error.js";
 
 const emptyInputShape = {} satisfies z.ZodRawShape;
 
@@ -45,19 +44,76 @@ const getTaskInputShape = {
   projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
+const listApprovalsInputShape = {
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const getApprovalInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const listMissionsInputShape = {
+  projectId: z.string().optional(),
+  includeDrafts: z.boolean().optional(),
+} satisfies z.ZodRawShape;
+
+const getMissionInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
 const getTaskLogsInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
   limit: z.number().int().positive().max(200).default(50),
   offset: z.number().int().nonnegative().default(0),
 } satisfies z.ZodRawShape;
 
 const getTaskWorkflowResultsInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const readProjectSettingsInputShape = {
   projectId: z.string().min(1).optional(),
 } satisfies z.ZodRawShape;
+
+export const updateProjectSettingsSchema = z
+  .strictObject({
+    mergeStrategy: z.string().min(1).max(500).optional(),
+    mergeConflictStrategy: z.string().min(1).max(500).optional(),
+    directMergeCommitStrategy: z.string().min(1).max(500).optional(),
+    integrationBranch: z.string().min(1).max(500).optional(),
+    githubTrackingDefaultRepo: z.string().min(1).max(500).optional(),
+    autoMerge: z.boolean().optional(),
+    pushAfterMerge: z.boolean().optional(),
+    autoArchiveDuplicateTasksEnabled: z.boolean().optional(),
+    planApprovalMode: z.literal("require-all").optional(),
+  })
+  .refine((settings) => Object.keys(settings).length > 0);
+
+const updateProjectSettingsInputShape = {
+  settings: updateProjectSettingsSchema,
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
+
+const updateTaskInputSchema = z
+  .object({
+    id: z.string().min(1, "id is required"),
+    title: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+    priority: z.string().min(1).optional(),
+    dependencies: z.array(z.string().min(1)).optional(),
+    projectId: z.string().min(1).optional(),
+  })
+  .refine(
+    ({ title, description, priority, dependencies }) =>
+      title !== undefined ||
+      description !== undefined ||
+      priority !== undefined ||
+      dependencies !== undefined,
+  );
 
 const createTaskInputShape = {
   description: z.string().min(1, "description is required"),
@@ -74,15 +130,29 @@ const commentTaskInputShape = {
   id: z.string().min(1, "id is required"),
   text: z.string().min(1, "text is required"),
   author: z.string().optional(),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const steerTaskInputShape = {
   id: z.string().min(1, "id is required"),
   text: z.string().min(1).max(2000),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const taskLifecycleInputShape = {
   id: z.string().min(1, "id is required"),
+  projectId: z.string().optional(),
+} satisfies z.ZodRawShape;
+
+const archiveTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  projectId: z.string().min(1).optional(),
+} satisfies z.ZodRawShape;
+
+const moveTaskInputShape = {
+  id: z.string().min(1, "id is required"),
+  column: z.string().min(1, "column is required"),
+  projectId: z.string().optional(),
 } satisfies z.ZodRawShape;
 
 const listedTaskSchema = z
@@ -100,11 +170,14 @@ const listedTaskSchema = z
 function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
   const result = listedTaskSchema.array().safeParse(data);
   if (!result.success) {
-    throw new FusionError("Fusion returned an invalid task list: GET /api/tasks", {
-      method: "GET",
-      path: "/api/tasks",
-      kind: "invalid_payload",
-    });
+    throw new FusionError(
+      "Fusion returned an invalid task list: GET /api/tasks",
+      {
+        method: "GET",
+        path: "/api/tasks",
+        kind: "invalid_payload",
+      },
+    );
   }
   return result.data;
 }
@@ -120,10 +193,14 @@ type RuntimeMcpServer = Pick<McpServer, "connect" | "close">;
 type HttpTransport = Pick<Transport, "close"> &
   Pick<StreamableHTTPServerTransport, "handleRequest">;
 
+export const LOOPBACK_BIND_HOST = "127.0.0.1";
+
 export interface HttpServerLike {
   listen(port: number, hostname: string, callback: () => void): this;
   once(event: "error", listener: (error: Error) => void): this;
   close(callback: (error?: Error) => void): this;
+  closeIdleConnections?(): void;
+  closeAllConnections?(): void;
 }
 
 export interface HttpServerHandle extends HttpServerLike {
@@ -147,6 +224,7 @@ export interface RuntimeDependencies {
   httpRequestBodyParser?: (request: IncomingMessage) => Promise<unknown>;
   signalSource?: SignalSource;
   setExitCode?: (exitCode: number) => void;
+  shutdownDrainTimeoutMs?: number;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
 
@@ -192,7 +270,7 @@ function parseConfiguredHttpHosts(value: string | undefined): string[] {
 function trustedHttpHosts(config: Config, env: Environment): string[] {
   return [
     ...new Set([
-      `127.0.0.1:${config.port}`,
+      `${LOOPBACK_BIND_HOST}:${config.port}`,
       ...parseConfiguredHttpHosts(env.FUSION_MCP_ALLOWED_HOSTS),
     ]),
   ];
@@ -229,7 +307,11 @@ function isToolCall(request: unknown): request is {
     return false;
   }
   const { method, params } = request as { method?: unknown; params?: unknown };
-  if (method !== "tools/call" || typeof params !== "object" || params === null) {
+  if (
+    method !== "tools/call" ||
+    typeof params !== "object" ||
+    params === null
+  ) {
     return false;
   }
   return typeof (params as { name?: unknown }).name === "string";
@@ -275,21 +357,26 @@ function normalizeInvalidToolCalls(
   };
 }
 
-function registerGovernedTool<InputShape extends z.ZodRawShape>(
+function registerGovernedTool<InputSchema extends z.ZodRawShape | z.ZodType>(
   server: McpServer,
   inputSchemas: GovernedInputSchemas,
   name: string,
-  config: { description: string; inputSchema: InputShape },
-  handler: ToolCallback<InputShape>,
+  config: { description: string; inputSchema: InputSchema },
+  handler: ToolCallback<InputSchema>,
 ): void {
-  inputSchemas.set(name, {
-    schema: z.object(config.inputSchema),
-    allowedPathSegments: new Set(Object.keys(config.inputSchema)),
-  });
+  const schema =
+    config.inputSchema instanceof z.ZodType
+      ? config.inputSchema
+      : z.object(config.inputSchema);
+  const allowedPathSegments =
+    schema instanceof z.ZodObject
+      ? new Set(Object.keys(schema.shape))
+      : new Set<string>();
+  inputSchemas.set(name, { schema, allowedPathSegments });
   server.registerTool(
     name,
     config,
-    withToolErrorEnvelope(handler) as ToolCallback<InputShape>,
+    withToolErrorEnvelope(handler) as ToolCallback<InputSchema>,
   );
 }
 
@@ -298,8 +385,9 @@ export function buildServer(
   options: BuildServerOptions = {},
 ): McpServer {
   const client =
-    options.client ?? new FusionClient(config, options.fetch ?? globalThis.fetch);
-  const server = new McpServer({ name: "fusion-mcp", version: "0.1.0" });
+    options.client ??
+    new FusionClient(config, options.fetch ?? globalThis.fetch);
+  const server = new McpServer({ name: "fusion-mcp", version: "0.2.0" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
   normalizeInvalidToolCalls(server, governedInputSchemas);
 
@@ -394,9 +482,7 @@ export function buildServer(
       );
 
       return {
-        content: [
-          { type: "text", text: JSON.stringify({ task: task.data }) },
-        ],
+        content: [{ type: "text", text: JSON.stringify({ task: task.data }) }],
       };
     },
   );
@@ -409,12 +495,16 @@ export function buildServer(
       description: "Get a paginated page of task logs",
       inputSchema: getTaskLogsInputShape,
     },
-    async ({ id, limit, offset }) => {
-      auditLog("get_task_logs", `id=${id} limit=${limit} offset=${offset}`);
+    async ({ id, projectId, limit, offset }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task_logs",
+        `id=${id} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const logs = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/logs`,
-        { query: { limit, offset } },
+        { query: { projectId: resolvedProjectId, limit, offset } },
       );
       const total = parseTotalCount(logs.headers.get("x-total-count"));
       const hasMore = logs.headers.get("x-has-more")?.toLowerCase() === "true";
@@ -441,11 +531,16 @@ export function buildServer(
       description: "Get workflow-step results for a task",
       inputSchema: getTaskWorkflowResultsInputShape,
     },
-    async ({ id }) => {
-      auditLog("get_task_workflow_results", `id=${id}`);
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_task_workflow_results",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const workflowResults = await client.request<unknown>(
         "GET",
         `/api/tasks/${encodeURIComponent(id)}/workflow-results`,
+        { query: { projectId: resolvedProjectId } },
       );
 
       return {
@@ -490,12 +585,17 @@ export function buildServer(
       const effectiveProjectId = projectId ?? config.defaultProjectId;
       auditLog(
         "read_project_settings",
-        effectiveProjectId === undefined ? "" : `projectId=${effectiveProjectId}`,
+        effectiveProjectId === undefined
+          ? ""
+          : `projectId=${effectiveProjectId}`,
       );
       const settings = await client.getSettings(effectiveProjectId);
       return {
         content: [
-          { type: "text", text: JSON.stringify({ settings: settings.data }) },
+          {
+            type: "text",
+            text: JSON.stringify({ settings: redactSettings(settings.data) }),
+          },
         ],
       };
     },
@@ -557,12 +657,24 @@ export function buildServer(
       description: "Post a comment to a task",
       inputSchema: commentTaskInputShape,
     },
-    async ({ id, text, author }) => {
-      auditLog("comment_task", `id=${id}`);
+    async ({ id, text, author, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "comment_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const comment = await client.request<unknown>(
         "POST",
         `/api/tasks/${encodeURIComponent(id)}/comments`,
-        { body: author === undefined ? { text } : { text, author } },
+        {
+          body: {
+            text,
+            ...(author === undefined ? {} : { author }),
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
       );
 
       return {
@@ -581,12 +693,23 @@ export function buildServer(
       description: "Send a steering message to a running task",
       inputSchema: steerTaskInputShape,
     },
-    async ({ id, text }) => {
-      auditLog("steer_task", `id=${id}`);
+    async ({ id, text, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "steer_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
       const steered = await client.request<unknown>(
         "POST",
         `/api/tasks/${encodeURIComponent(id)}/steer`,
-        { body: { text } },
+        {
+          body: {
+            text,
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
       );
 
       return {
@@ -613,11 +736,18 @@ export function buildServer(
         description,
         inputSchema: taskLifecycleInputShape,
       },
-      async ({ id }) => {
-        auditLog(name, `id=${id}`);
+      async ({ id, projectId }) => {
+        const resolvedProjectId = projectId ?? config.defaultProjectId;
+        auditLog(
+          name,
+          `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+        );
         const response = await client.request<unknown>(
           "POST",
           `/api/tasks/${encodeURIComponent(id)}/${action}`,
+          resolvedProjectId === undefined
+            ? undefined
+            : { body: { projectId: resolvedProjectId } },
         );
 
         return {
@@ -628,6 +758,353 @@ export function buildServer(
       },
     );
   }
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "list_approvals",
+    {
+      description: "List board approvals",
+      inputSchema: listApprovalsInputShape,
+    },
+    async ({ projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_approvals",
+        `projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>("GET", "/api/approvals", {
+        query: { projectId: resolvedProjectId },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ approvals: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_approval",
+    {
+      description: "Get a single board approval",
+      inputSchema: getApprovalInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_approval",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "GET",
+        `/api/approvals/${encodeURIComponent(id)}`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ approval: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "list_missions",
+    {
+      description: "List board missions",
+      inputSchema: listMissionsInputShape,
+    },
+    async ({ projectId, includeDrafts }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "list_missions",
+        `includeDrafts=${includeDrafts ?? false} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>("GET", "/api/missions", {
+        query: { projectId: resolvedProjectId, includeDrafts },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ missions: response.data }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "get_mission",
+    {
+      description: "Get a board mission with status and health",
+      inputSchema: getMissionInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "get_mission",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const encodedId = encodeURIComponent(id);
+      const query = { projectId: resolvedProjectId };
+      const mission = await client.request<unknown>(
+        "GET",
+        `/api/missions/${encodedId}`,
+        { query },
+      );
+
+      let status: unknown = { available: false };
+      try {
+        status = (
+          await client.request<unknown>(
+            "GET",
+            `/api/missions/${encodedId}/status`,
+            { query },
+          )
+        ).data;
+      } catch {
+        // Status is a best-effort sub-view; the primary mission remains useful.
+      }
+
+      let health: unknown = { available: false };
+      try {
+        health = (
+          await client.request<unknown>(
+            "GET",
+            `/api/missions/${encodedId}/health`,
+            { query },
+          )
+        ).data;
+      } catch {
+        // Health is a best-effort sub-view; the primary mission remains useful.
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ mission: mission.data, status, health }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "move_task",
+    {
+      description:
+        "Move a board task to another column (board reprioritisation)",
+      inputSchema: moveTaskInputShape,
+    },
+    async ({ id, column, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "move_task",
+        `id=${id} column=${column} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/move`,
+        {
+          body: {
+            column,
+            ...(resolvedProjectId === undefined
+              ? {}
+              : { projectId: resolvedProjectId }),
+          },
+        },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "update_project_settings",
+    {
+      description:
+        "Update project settings. Allowed keys: autoArchiveDuplicateTasksEnabled, autoMerge, directMergeCommitStrategy, githubTrackingDefaultRepo, integrationBranch, mergeConflictStrategy, mergeStrategy, planApprovalMode (require-all only), pushAfterMerge",
+      inputSchema: updateProjectSettingsInputShape,
+    },
+    async ({ settings, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      if (resolvedProjectId === undefined) {
+        auditLog("update_project_settings", "validation=failed");
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: {
+                  code: "validation",
+                  message: "Invalid tool arguments",
+                  details: [
+                    {
+                      path: ["projectId"],
+                      message:
+                        "projectId is required when FUSION_DEFAULT_PROJECT_ID is not configured",
+                    },
+                  ],
+                },
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const body = {
+        ...(settings.mergeStrategy === undefined
+          ? {}
+          : { mergeStrategy: settings.mergeStrategy }),
+        ...(settings.mergeConflictStrategy === undefined
+          ? {}
+          : { mergeConflictStrategy: settings.mergeConflictStrategy }),
+        ...(settings.directMergeCommitStrategy === undefined
+          ? {}
+          : { directMergeCommitStrategy: settings.directMergeCommitStrategy }),
+        ...(settings.integrationBranch === undefined
+          ? {}
+          : { integrationBranch: settings.integrationBranch }),
+        ...(settings.githubTrackingDefaultRepo === undefined
+          ? {}
+          : { githubTrackingDefaultRepo: settings.githubTrackingDefaultRepo }),
+        ...(settings.autoMerge === undefined
+          ? {}
+          : { autoMerge: settings.autoMerge }),
+        ...(settings.pushAfterMerge === undefined
+          ? {}
+          : { pushAfterMerge: settings.pushAfterMerge }),
+        ...(settings.autoArchiveDuplicateTasksEnabled === undefined
+          ? {}
+          : {
+              autoArchiveDuplicateTasksEnabled:
+                settings.autoArchiveDuplicateTasksEnabled,
+            }),
+        ...(settings.planApprovalMode === undefined
+          ? {}
+          : { planApprovalMode: settings.planApprovalMode }),
+      };
+      const keys = Object.keys(body).sort().join(",");
+      auditLog(
+        "update_project_settings",
+        `projectIdApplied=${resolvedProjectId !== undefined} keys=${keys}`,
+      );
+      const response = await client.request<unknown>("PUT", "/api/settings", {
+        query: { projectId: resolvedProjectId },
+        body,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ settings: redactSettings(response.data) }),
+          },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "update_task",
+    {
+      description:
+        "Update task dependencies, priority, title, or description only",
+      inputSchema: updateTaskInputSchema,
+    },
+    async ({ id, title, description, priority, dependencies, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      const body = {
+        ...(title === undefined ? {} : { title }),
+        ...(description === undefined ? {} : { description }),
+        ...(priority === undefined ? {} : { priority }),
+        ...(dependencies === undefined ? {} : { dependencies }),
+      };
+      const fields = [
+        title === undefined ? undefined : "title",
+        description === undefined ? undefined : "description",
+        priority === undefined ? undefined : "priority",
+        dependencies === undefined ? undefined : "dependencies",
+      ]
+        .filter((field): field is string => field !== undefined)
+        .sort()
+        .join(",");
+      auditLog(
+        "update_task",
+        `id=${id} fields=${fields} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "PATCH",
+        `/api/tasks/${encodeURIComponent(id)}`,
+        {
+          query: { projectId: resolvedProjectId },
+          body,
+        },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
+
+  registerGovernedTool(
+    server,
+    governedInputSchemas,
+    "archive_task",
+    {
+      description: "Archive a board task as recoverable board hygiene",
+      inputSchema: archiveTaskInputShape,
+    },
+    async ({ id, projectId }) => {
+      const resolvedProjectId = projectId ?? config.defaultProjectId;
+      auditLog(
+        "archive_task",
+        `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
+      );
+      const response = await client.request<unknown>(
+        "POST",
+        `/api/tasks/${encodeURIComponent(id)}/archive`,
+        { query: { projectId: resolvedProjectId } },
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ task: response.data }) },
+        ],
+      };
+    },
+  );
 
   return server;
 }
@@ -669,13 +1146,18 @@ interface HttpRuntimeState {
 type HttpSessionRegistry = Map<string, HttpSession>;
 
 const MAX_HTTP_REQUEST_BODY_BYTES = 1_048_576;
+const DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS = 5_000;
 
-async function parseHttpRequestBody(request: IncomingMessage): Promise<unknown> {
+async function parseHttpRequestBody(
+  request: IncomingMessage,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let byteLength = 0;
 
   for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    const buffer = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(chunk as string);
     byteLength += buffer.byteLength;
     if (byteLength > MAX_HTTP_REQUEST_BODY_BYTES) {
       throw new Error("request body too large");
@@ -739,6 +1221,40 @@ function stopHttpServer(httpServer: HttpServerLike): Promise<void> {
       resolve();
     }
   });
+}
+
+async function drainHttpDispatches(
+  pendingDispatches: ReadonlySet<Promise<void>>,
+  timeoutMs: number,
+): Promise<void> {
+  if (pendingDispatches.size === 0) {
+    return;
+  }
+
+  let deadlineReached = false;
+  let resolveDeadline: (() => void) | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    resolveDeadline = resolve;
+  });
+  const timer = setTimeout(
+    () => {
+      deadlineReached = true;
+      resolveDeadline?.();
+    },
+    Math.max(0, timeoutMs),
+  );
+  timer.unref();
+
+  try {
+    while (pendingDispatches.size > 0 && !deadlineReached) {
+      await Promise.race([
+        Promise.allSettled([...pendingDispatches]),
+        deadline,
+      ]);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function dispatchHttpRequest(
@@ -898,11 +1414,12 @@ export async function startHttpServer(
   );
   const sessions: HttpSessionRegistry = new Map();
   const pendingSessions = new Set<HttpSession>();
+  const pendingDispatches = new Set<Promise<void>>();
   const runtimeState: HttpRuntimeState = { shuttingDown: false };
 
   return await new Promise<HttpServerHandle>((resolve, reject) => {
     const httpServer = factory((request, response) => {
-      void dispatchHttpRequest(
+      const dispatch = dispatchHttpRequest(
         request,
         response,
         config,
@@ -912,6 +1429,10 @@ export async function startHttpServer(
         runtimeState,
         dependencies,
       );
+      pendingDispatches.add(dispatch);
+      void dispatch
+        .catch(() => undefined)
+        .finally(() => pendingDispatches.delete(dispatch));
     });
     const signalSource = dependencies.signalSource ?? process;
     let shutdownPromise: Promise<void> | undefined;
@@ -924,37 +1445,59 @@ export async function startHttpServer(
       runtimeState.shuttingDown = true;
       signalSource.off("SIGINT", handleSignal);
       signalSource.off("SIGTERM", handleSignal);
-      const stopped = stopHttpServer(httpServer);
-      const registeredSessions = [...sessions.entries()];
-      const resources = new Set<HttpSession>([
-        ...registeredSessions.map(([, session]) => session),
-        ...pendingSessions,
-      ]);
-      sessions.clear();
-      pendingSessions.clear();
-      for (const [sessionId] of registeredSessions) {
-        (dependencies.stderr ?? process.stderr).write(
-          `fusion-mcp: session=${sessionId} event=close\n`,
-        );
-      }
 
-      shutdownPromise = Promise.all(
-        [...resources].map(closeSessionResources),
-      )
-        .then(() => stopped)
-        .then(() => undefined);
+      shutdownPromise = (async () => {
+        const stopped = stopHttpServer(httpServer);
+        try {
+          httpServer.closeIdleConnections?.();
+        } catch {
+          // Best-effort connection cleanup must not prevent shutdown.
+        }
+
+        await drainHttpDispatches(
+          pendingDispatches,
+          dependencies.shutdownDrainTimeoutMs ??
+            DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS,
+        );
+
+        const registeredSessions = [...sessions.entries()];
+        const resources = new Set<HttpSession>([
+          ...registeredSessions.map(([, session]) => session),
+          ...pendingSessions,
+        ]);
+        sessions.clear();
+        pendingSessions.clear();
+        for (const [sessionId] of registeredSessions) {
+          (dependencies.stderr ?? process.stderr).write(
+            `fusion-mcp: session=${sessionId} event=close\n`,
+          );
+        }
+        await Promise.all([...resources].map(closeSessionResources));
+
+        try {
+          httpServer.closeAllConnections?.();
+        } catch {
+          // Best-effort connection cleanup must not prevent shutdown.
+        }
+        await stopped;
+      })();
       return shutdownPromise;
     };
 
     const handleSignal = (): void => {
       void shutdown().then(() => {
-        (dependencies.setExitCode ?? ((code) => { process.exitCode = code; }))(0);
+        (
+          dependencies.setExitCode ??
+          ((code) => {
+            process.exitCode = code;
+          })
+        )(0);
       });
     };
 
     const handle = Object.assign(httpServer, { shutdown });
     httpServer.once("error", reject);
-    httpServer.listen(config.port, "127.0.0.1", () => {
+    httpServer.listen(config.port, LOOPBACK_BIND_HOST, () => {
       signalSource.on("SIGINT", handleSignal);
       signalSource.on("SIGTERM", handleSignal);
       resolve(handle);
@@ -987,7 +1530,7 @@ function safeCliError(error: unknown): string {
   }
   if (
     error instanceof Error &&
-    /^(FUSION_BASE_URL|FUSION_REQUEST_TIMEOUT_MS|FUSION_MCP_ALLOWED_HOSTS|PORT) must/.test(
+    /^(FUSION_BASE_URL|FUSION_CF_ACCESS_CLIENT_ID|FUSION_CF_ACCESS_CLIENT_SECRET|FUSION_USER_AGENT|FUSION_REQUEST_TIMEOUT_MS|FUSION_MCP_ALLOWED_HOSTS|PORT) must/.test(
       error.message,
     )
   ) {
@@ -1015,7 +1558,21 @@ export function isDirectExecution(
   moduleUrl: string,
   argv: readonly string[] = process.argv,
 ): boolean {
-  return argv[1] !== undefined && moduleUrl === pathToFileURL(argv[1]).href;
+  const entryPath = argv[1];
+  if (entryPath === undefined) {
+    return false;
+  }
+  if (moduleUrl === pathToFileURL(entryPath).href) {
+    return true;
+  }
+  // Package managers expose the CLI as a `node_modules/.bin` symlink while
+  // Node resolves the module URL to the real file, so compare against the
+  // resolved entry path as well.
+  try {
+    return moduleUrl === pathToFileURL(realpathSync(entryPath)).href;
+  } catch {
+    return false;
+  }
 }
 
 if (isDirectExecution(import.meta.url)) {

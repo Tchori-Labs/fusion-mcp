@@ -1,20 +1,54 @@
 {
-  "name": "fusion-mcp",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Governed Model Context Protocol server for a Fusion board",
+  "name": "@tchori-labs/fusion-mcp",
+  "version": "0.2.0",
+  "description": "Governed Model Context Protocol server for a Fusion agent board",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "fusion",
+    "agent-board",
+    "governance",
+    "stdio",
+    "ai-agents",
+    "claude"
+  ],
+  "homepage": "https://github.com/Tchori-Labs/fusion-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tchori-Labs/fusion-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Tchori-Labs/fusion-mcp/issues"
+  },
+  "license": "MIT",
   "type": "module",
   "bin": {
     "fusion-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "tool-contract.json"
+  ],
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip",
+    "pkgcheck": "publint && bash scripts/pack-smoke.sh",
+    "prepare": "husky",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:stability": "tsx scripts/run-stability.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts --stdio",
@@ -26,14 +60,28 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.19.11",
+    "@types/node": "^26.1.1",
     "eslint": "^10.7.0",
+    "husky": "^9.1.7",
+    "knip": "^6.27.0",
+    "lint-staged": "^17.1.0",
+    "prettier": "^3.9.6",
+    "publint": "^0.3.21",
     "tsx": "^4.23.1",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.64.0",
     "vitest": "^4.1.10"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{js,json,md,yml,yaml}": "prettier --write"
   }
 }

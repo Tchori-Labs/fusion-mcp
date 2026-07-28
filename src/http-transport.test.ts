@@ -9,6 +9,7 @@ import { parseConfig } from "./config.js";
 import type { FetchLike } from "./fusion-client.js";
 import {
   buildServer,
+  LOOPBACK_BIND_HOST,
   startHttpServer,
   type HttpServerLike,
   type RuntimeDependencies,
@@ -36,7 +37,15 @@ function httpFactoryHarness() {
   const once = vi.fn();
   const listen = vi.fn();
   const close = vi.fn();
-  const server = { once, listen, close } as unknown as HttpServerLike;
+  const closeIdleConnections = vi.fn();
+  const closeAllConnections = vi.fn();
+  const server = {
+    once,
+    listen,
+    close,
+    closeIdleConnections,
+    closeAllConnections,
+  } as unknown as HttpServerLike;
   once.mockReturnValue(server);
   listen.mockImplementation(
     (_port: number, _hostname: string, callback: () => void) => {
@@ -58,6 +67,8 @@ function httpFactoryHarness() {
     once,
     listen,
     close,
+    closeIdleConnections,
+    closeAllConnections,
     getListener(): RequestListener {
       if (listener === undefined) {
         throw new Error("HTTP listener was not created");
@@ -109,6 +120,14 @@ function request(
   };
 }
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function response() {
   const result = {
     headersSent: false,
@@ -128,8 +147,8 @@ function statefulTransportHarness() {
     handleRequest: ReturnType<typeof vi.fn>;
     sessionId?: string;
   }> = [];
-  const factory: NonNullable<RuntimeDependencies["httpTransportFactory"]> = vi.fn(
-    (options: StreamableHTTPServerTransportOptions) => {
+  const factory: NonNullable<RuntimeDependencies["httpTransportFactory"]> =
+    vi.fn((options: StreamableHTTPServerTransportOptions) => {
       const close = vi.fn().mockResolvedValue(undefined);
       const state: (typeof transports)[number] = {
         close,
@@ -160,8 +179,7 @@ function statefulTransportHarness() {
       };
       transports.push(state);
       return state as never;
-    },
-  );
+    });
 
   return { factory, transports };
 }
@@ -230,6 +248,62 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("loopback-only HTTP binding", () => {
+  it.each([
+    { name: "empty environment", env: {} },
+    {
+      name: "configured tunnel hosts",
+      env: {
+        FUSION_MCP_ALLOWED_HOSTS: "mcp.example.test, tunnel.example.test:8443",
+      },
+    },
+    { name: "wildcard HOST", env: { HOST: "0.0.0.0" } },
+    {
+      name: "hostname and bind-address hints",
+      env: { HOSTNAME: "public.example.test", BIND_ADDR: "::" },
+    },
+  ])("binds to loopback with $name", async ({ env }) => {
+    const runtime = runtimeHarness({ env });
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+
+    try {
+      await initializeSession(runtime);
+
+      expect(runtime.http.listen).toHaveBeenCalledOnce();
+      expect(runtime.http.listen).toHaveBeenCalledWith(
+        testConfig.port,
+        LOOPBACK_BIND_HOST,
+        expect.any(Function),
+      );
+      const hostname = runtime.http.listen.mock.calls[0]?.[1];
+      expect([
+        "0.0.0.0",
+        "::",
+        "",
+        "localhost",
+        "mcp.example.test",
+        "tunnel.example.test:8443",
+        "public.example.test",
+      ]).not.toContain(hostname);
+
+      const configuredHosts = env.FUSION_MCP_ALLOWED_HOSTS?.split(", ") ?? [];
+      expect(runtime.transport.factory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allowedHosts: [
+            `${LOOPBACK_BIND_HOST}:${testConfig.port}`,
+            ...configuredHosts,
+          ],
+        }),
+      );
+      for (const configuredHost of configuredHosts) {
+        expect(hostname).not.toBe(configuredHost);
+      }
+    } finally {
+      await handle.shutdown();
+    }
+  });
+});
+
 describe("session-aware Streamable HTTP transport", () => {
   it("creates one session and reuses it for POST, GET, and DELETE", async () => {
     const runtime = runtimeHarness();
@@ -263,19 +337,27 @@ describe("session-aware Streamable HTTP transport", () => {
       expect(runtime.serverFactory).toHaveBeenCalledOnce();
       expect(runtime.transport.factory).toHaveBeenCalledOnce();
       expect(runtime.bodyParser).toHaveBeenCalledOnce();
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenCalledTimes(4);
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenCalledTimes(4);
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         1,
         expect.anything(),
         expect.anything(),
         initializeRequest,
       );
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         3,
         expect.objectContaining({ method: "GET" }),
         getResponse,
       );
-      expect(runtime.transport.transports[0]?.handleRequest).toHaveBeenNthCalledWith(
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenNthCalledWith(
         4,
         expect.objectContaining({ method: "DELETE" }),
         deleteResponse,
@@ -365,7 +447,10 @@ describe("session-aware Streamable HTTP transport", () => {
       const rejectedResponse = response();
       const foreignRequest = request("POST");
       foreignRequest.headers.host = "attacker.invalid";
-      runtime.http.getListener()(foreignRequest as never, rejectedResponse as never);
+      runtime.http.getListener()(
+        foreignRequest as never,
+        rejectedResponse as never,
+      );
 
       await vi.waitFor(() => expect(rejectedResponse.end).toHaveBeenCalled());
       expect(rejectedResponse.statusCode).toBe(403);
@@ -405,6 +490,141 @@ describe("session-aware Streamable HTTP transport", () => {
       expect(server.close).toHaveBeenCalledOnce();
     }
     expect(runtime.signals.off).toHaveBeenCalledTimes(2);
+  });
+
+  it("delivers an in-flight response before closing its session", async () => {
+    const runtime = runtimeHarness();
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+    const sessionId = await initializeSession(runtime);
+    const requestMayFinish = deferred();
+    const inFlightResponse = response();
+    runtime.transport.transports[0]?.handleRequest.mockImplementationOnce(
+      async (_request, outgoingResponse) => {
+        await requestMayFinish.promise;
+        outgoingResponse.end();
+      },
+    );
+
+    runtime.http.getListener()(
+      request("POST", { "mcp-session-id": sessionId }) as never,
+      inFlightResponse as never,
+    );
+    await vi.waitFor(() =>
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenCalledTimes(2),
+    );
+
+    let shutdownSettled = false;
+    const shutdown = handle.shutdown();
+    void shutdown.finally(() => {
+      shutdownSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(shutdownSettled).toBe(false);
+    expect(inFlightResponse.end).not.toHaveBeenCalled();
+    expect(runtime.transport.transports[0]?.close).not.toHaveBeenCalled();
+    expect(runtime.servers[0]?.close).not.toHaveBeenCalled();
+    expect(runtime.http.close).toHaveBeenCalledOnce();
+    expect(runtime.http.closeIdleConnections).toHaveBeenCalledOnce();
+
+    requestMayFinish.resolve();
+    await shutdown;
+
+    expect(inFlightResponse.end).toHaveBeenCalledOnce();
+    expect(runtime.transport.transports[0]?.close).toHaveBeenCalledOnce();
+    expect(runtime.servers[0]?.close).toHaveBeenCalledOnce();
+    expect(runtime.http.closeAllConnections).toHaveBeenCalledOnce();
+  });
+
+  it("bounds draining of a never-settling long-lived request", async () => {
+    const runtime = runtimeHarness({ shutdownDrainTimeoutMs: 10 });
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+    const sessionId = await initializeSession(runtime);
+    runtime.transport.transports[0]?.handleRequest.mockImplementationOnce(
+      async () => await new Promise<void>(() => undefined),
+    );
+
+    runtime.http.getListener()(
+      request("GET", { "mcp-session-id": sessionId }) as never,
+      response() as never,
+    );
+    await vi.waitFor(() =>
+      expect(
+        runtime.transport.transports[0]?.handleRequest,
+      ).toHaveBeenCalledTimes(2),
+    );
+
+    await handle.shutdown();
+
+    expect(runtime.transport.transports[0]?.close).toHaveBeenCalledOnce();
+    expect(runtime.servers[0]?.close).toHaveBeenCalledOnce();
+    expect(runtime.http.closeIdleConnections).toHaveBeenCalledOnce();
+    expect(runtime.http.closeAllConnections).toHaveBeenCalledOnce();
+  });
+
+  it("closes a pending uninitialized session after the drain deadline", async () => {
+    const pendingConnect = new Promise<void>(() => undefined);
+    const pendingServer = {
+      connect: vi.fn(() => pendingConnect),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const runtime = runtimeHarness({
+      serverFactory: () => pendingServer,
+      shutdownDrainTimeoutMs: 10,
+    });
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+
+    runtime.http.getListener()(request("POST") as never, response() as never);
+    await vi.waitFor(() =>
+      expect(pendingServer.connect).toHaveBeenCalledOnce(),
+    );
+    await handle.shutdown();
+
+    expect(runtime.transport.transports[0]?.close).toHaveBeenCalledOnce();
+    expect(pendingServer.close).toHaveBeenCalledOnce();
+    expect(runtime.stderr.write).not.toHaveBeenCalledWith(
+      expect.stringContaining("event=init"),
+    );
+  });
+
+  it("rejects requests admitted after shutdown starts without construction", async () => {
+    const runtime = runtimeHarness();
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+
+    const shutdown = handle.shutdown();
+    const rejectedResponse = response();
+    runtime.http.getListener()(
+      request("POST") as never,
+      rejectedResponse as never,
+    );
+    await shutdown;
+
+    expect(rejectedResponse.statusCode).toBe(503);
+    expect(rejectedResponse.end).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(rejectedResponse.end.mock.calls[0]?.[0] as string),
+    ).toEqual({
+      jsonrpc: "2.0",
+      error: { code: -32_000, message: "Server is shutting down" },
+      id: null,
+    });
+    expect(runtime.serverFactory).not.toHaveBeenCalled();
+    expect(runtime.transport.factory).not.toHaveBeenCalled();
+  });
+
+  it("shuts down cleanly with no sessions or dispatches", async () => {
+    const runtime = runtimeHarness();
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+
+    await expect(handle.shutdown()).resolves.toBeUndefined();
+
+    expect(runtime.http.close).toHaveBeenCalledOnce();
+    expect(runtime.http.closeIdleConnections).toHaveBeenCalledOnce();
+    expect(runtime.http.closeAllConnections).toHaveBeenCalledOnce();
+    expect(runtime.serverFactory).not.toHaveBeenCalled();
+    expect(runtime.transport.factory).not.toHaveBeenCalled();
   });
 
   it.each(["SIGINT", "SIGTERM"] as const)(
@@ -469,6 +689,14 @@ describe("session-aware Streamable HTTP transport", () => {
         "steer_task",
         "pause_task",
         "unpause_task",
+        "list_approvals",
+        "get_approval",
+        "list_missions",
+        "get_mission",
+        "move_task",
+        "update_project_settings",
+        "update_task",
+        "archive_task",
       ]);
 
       await client.callTool({ name: "get_board_health", arguments: {} });
