@@ -185,6 +185,7 @@ function shapeListedTasks(data: unknown): z.infer<typeof listedTaskSchema>[] {
 export interface BuildServerOptions {
   client?: FusionClient;
   fetch?: FetchLike;
+  stderr?: DiagnosticSink;
 }
 
 export type RunMode = "stdio" | "http";
@@ -214,6 +215,7 @@ export interface SignalSource {
 
 export interface RuntimeDependencies {
   config?: Config;
+  fetch?: FetchLike;
   env?: Environment;
   serverFactory?: (config: Config) => RuntimeMcpServer;
   stdioTransportFactory?: () => Transport;
@@ -225,7 +227,7 @@ export interface RuntimeDependencies {
   signalSource?: SignalSource;
   setExitCode?: (exitCode: number) => void;
   shutdownDrainTimeoutMs?: number;
-  stderr?: Pick<NodeJS.WriteStream, "write">;
+  stderr?: DiagnosticSink;
 }
 
 class CliArgumentError extends Error {}
@@ -276,11 +278,25 @@ function trustedHttpHosts(config: Config, env: Environment): string[] {
   ];
 }
 
+type DiagnosticSink = Pick<NodeJS.WriteStream, "write">;
+type AuditLogger = (tool: string, argsSummary?: string) => void;
+
+function writeDiagnostic(sink: DiagnosticSink | undefined, line: string): void {
+  (sink ?? process.stderr).write(line);
+}
+
+function createAuditLogger(sink?: DiagnosticSink): AuditLogger {
+  return (tool, argsSummary = "") => {
+    const summary = argsSummary.replace(/\s+/g, " ").trim();
+    writeDiagnostic(
+      sink,
+      `[${new Date().toISOString()}] tool=${tool}${summary === "" ? "" : ` ${summary}`}\n`,
+    );
+  };
+}
+
 export function auditLog(tool: string, argsSummary = ""): void {
-  const summary = argsSummary.replace(/\s+/g, " ").trim();
-  process.stderr.write(
-    `[${new Date().toISOString()}] tool=${tool}${summary === "" ? "" : ` ${summary}`}\n`,
-  );
+  createAuditLogger()(tool, argsSummary);
 }
 
 interface GovernedInputSchema {
@@ -290,10 +306,14 @@ interface GovernedInputSchema {
 
 type GovernedInputSchemas = Map<string, GovernedInputSchema>;
 
-type StoredRequestHandler = (
+const normalizedToolCallHandler = Symbol("normalizedToolCallHandler");
+
+type StoredRequestHandler = ((
   request: unknown,
   extra: unknown,
-) => unknown | Promise<unknown>;
+) => unknown | Promise<unknown>) & {
+  [normalizedToolCallHandler]?: true;
+};
 
 interface RequestHandlerStore {
   _requestHandlers: Map<string, StoredRequestHandler>;
@@ -317,9 +337,15 @@ function isToolCall(request: unknown): request is {
   return typeof (params as { name?: unknown }).name === "string";
 }
 
+function sanitizedToolName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 64);
+  return sanitized === "" ? "(unknown)" : sanitized;
+}
+
 function normalizeInvalidToolCalls(
   server: McpServer,
   inputSchemas: GovernedInputSchemas,
+  audit: AuditLogger,
 ): void {
   const protocol = server.server as unknown as RequestHandlerStore;
   const setRequestHandler = server.server.setRequestHandler.bind(server.server);
@@ -332,28 +358,46 @@ function normalizeInvalidToolCalls(
     // installed protocol handler so malformed argument containers can still
     // receive the governed tool envelope before either SDK parser rejects them.
     const installedHandler = protocol._requestHandlers.get("tools/call");
-    if (installedHandler === undefined) {
+    if (
+      installedHandler === undefined ||
+      installedHandler[normalizedToolCallHandler] === true
+    ) {
       return;
     }
 
-    protocol._requestHandlers.set("tools/call", async (request, extra) => {
+    const normalizedHandler: StoredRequestHandler = async (request, extra) => {
       if (isToolCall(request)) {
         const input = inputSchemas.get(request.params.name);
-        const rawArguments =
-          request.params.arguments === undefined
-            ? {}
-            : request.params.arguments;
-        const parsed = input?.schema.safeParse(rawArguments);
-        if (input !== undefined && parsed !== undefined && !parsed.success) {
-          auditLog(request.params.name, "validation=failed");
-          return formatValidationError(
-            parsed.error.issues,
-            input.allowedPathSegments,
-          );
+        if (input === undefined) {
+          audit(sanitizedToolName(request.params.name), "unknown_tool");
+        } else {
+          const rawArguments =
+            request.params.arguments === undefined
+              ? {}
+              : request.params.arguments;
+          const parsed = input.schema.safeParse(rawArguments);
+          if (!parsed.success) {
+            audit(request.params.name, "validation=failed");
+            return formatValidationError(
+              parsed.error.issues,
+              input.allowedPathSegments,
+            );
+          }
+          if (request.params.arguments === undefined) {
+            return await installedHandler(
+              {
+                ...request,
+                params: { ...request.params, arguments: {} },
+              },
+              extra,
+            );
+          }
         }
       }
       return await installedHandler(request, extra);
-    });
+    };
+    normalizedHandler[normalizedToolCallHandler] = true;
+    protocol._requestHandlers.set("tools/call", normalizedHandler);
   };
 }
 
@@ -389,7 +433,8 @@ export function buildServer(
     new FusionClient(config, options.fetch ?? globalThis.fetch);
   const server = new McpServer({ name: "fusion-mcp", version: "0.2.0" });
   const governedInputSchemas: GovernedInputSchemas = new Map();
-  normalizeInvalidToolCalls(server, governedInputSchemas);
+  const audit = createAuditLogger(options.stderr);
+  normalizeInvalidToolCalls(server, governedInputSchemas, audit);
 
   registerGovernedTool(
     server,
@@ -400,7 +445,7 @@ export function buildServer(
       inputSchema: emptyInputShape,
     },
     async () => {
-      auditLog("get_board_health");
+      audit("get_board_health");
       const health = await client.getHealth();
       const result: { health: unknown; systemInfo?: unknown } = {
         health: health.data,
@@ -431,7 +476,7 @@ export function buildServer(
     },
     async ({ projectId, limit, offset, q, column, includeArchived }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "list_tasks",
         `column=${column ?? "all"} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined} includeArchived=${includeArchived ?? false}`,
       );
@@ -471,7 +516,7 @@ export function buildServer(
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "get_task",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -497,7 +542,7 @@ export function buildServer(
     },
     async ({ id, projectId, limit, offset }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "get_task_logs",
         `id=${id} limit=${limit} offset=${offset} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -533,7 +578,7 @@ export function buildServer(
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "get_task_workflow_results",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -563,7 +608,7 @@ export function buildServer(
       inputSchema: emptyInputShape,
     },
     async () => {
-      auditLog("list_projects");
+      audit("list_projects");
       const projects = await client.listProjects();
       return {
         content: [
@@ -583,7 +628,7 @@ export function buildServer(
     },
     async ({ projectId }) => {
       const effectiveProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "read_project_settings",
         effectiveProjectId === undefined
           ? ""
@@ -633,7 +678,7 @@ export function buildServer(
           : { projectId: resolvedProjectId }),
       };
 
-      auditLog(
+      audit(
         "create_task",
         `title=${title ?? "(none)"} column=${column ?? "(default)"}`,
       );
@@ -659,7 +704,7 @@ export function buildServer(
     },
     async ({ id, text, author, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "comment_task",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -695,7 +740,7 @@ export function buildServer(
     },
     async ({ id, text, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "steer_task",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -738,7 +783,7 @@ export function buildServer(
       },
       async ({ id, projectId }) => {
         const resolvedProjectId = projectId ?? config.defaultProjectId;
-        auditLog(
+        audit(
           name,
           `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
         );
@@ -769,7 +814,7 @@ export function buildServer(
     },
     async ({ projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "list_approvals",
         `projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -798,7 +843,7 @@ export function buildServer(
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "get_approval",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -829,7 +874,7 @@ export function buildServer(
     },
     async ({ projectId, includeDrafts }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "list_missions",
         `includeDrafts=${includeDrafts ?? false} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -858,7 +903,7 @@ export function buildServer(
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "get_mission",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -918,7 +963,7 @@ export function buildServer(
     },
     async ({ id, column, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "move_task",
         `id=${id} column=${column} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -955,7 +1000,7 @@ export function buildServer(
     async ({ settings, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
       if (resolvedProjectId === undefined) {
-        auditLog("update_project_settings", "validation=failed");
+        audit("update_project_settings", "validation=failed");
         return {
           content: [
             {
@@ -1011,7 +1056,7 @@ export function buildServer(
           : { planApprovalMode: settings.planApprovalMode }),
       };
       const keys = Object.keys(body).sort().join(",");
-      auditLog(
+      audit(
         "update_project_settings",
         `projectIdApplied=${resolvedProjectId !== undefined} keys=${keys}`,
       );
@@ -1057,7 +1102,7 @@ export function buildServer(
         .filter((field): field is string => field !== undefined)
         .sort()
         .join(",");
-      auditLog(
+      audit(
         "update_task",
         `id=${id} fields=${fields} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -1088,7 +1133,7 @@ export function buildServer(
     },
     async ({ id, projectId }) => {
       const resolvedProjectId = projectId ?? config.defaultProjectId;
-      auditLog(
+      audit(
         "archive_task",
         `id=${id} projectIdApplied=${resolvedProjectId !== undefined}`,
       );
@@ -1130,8 +1175,16 @@ export function selectMode(args: readonly string[]): RunMode {
   throw new CliArgumentError(`unknown argument: ${offendingArgument}`);
 }
 
-function defaultServerFactory(config: Config): RuntimeMcpServer {
-  return buildServer(config);
+function buildRuntimeServer(
+  config: Config,
+  dependencies: RuntimeDependencies,
+): RuntimeMcpServer {
+  return buildServer(config, {
+    ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+    ...(dependencies.stderr === undefined
+      ? {}
+      : { stderr: dependencies.stderr }),
+  });
 }
 
 interface HttpSession {
@@ -1207,7 +1260,8 @@ function removeRegisteredSession(
   }
 
   sessions.delete(sessionId);
-  (dependencies.stderr ?? process.stderr).write(
+  writeDiagnostic(
+    dependencies.stderr,
     `fusion-mcp: session=${sessionId} event=close\n`,
   );
   return true;
@@ -1300,9 +1354,7 @@ async function dispatchHttpRequest(
         response.statusCode = 500;
         response.end("MCP request failed");
       }
-      (dependencies.stderr ?? process.stderr).write(
-        "fusion-mcp: HTTP request failed\n",
-      );
+      writeDiagnostic(dependencies.stderr, "fusion-mcp: HTTP request failed\n");
     }
     return;
   }
@@ -1342,7 +1394,9 @@ async function dispatchHttpRequest(
     return;
   }
 
-  const serverFactory = dependencies.serverFactory ?? defaultServerFactory;
+  const serverFactory =
+    dependencies.serverFactory ??
+    ((serverConfig: Config) => buildRuntimeServer(serverConfig, dependencies));
   const transportFactory =
     dependencies.httpTransportFactory ??
     ((options) => new StreamableHTTPServerTransport(options));
@@ -1360,7 +1414,8 @@ async function dispatchHttpRequest(
       }
       pendingSessions.delete(session);
       sessions.set(initializedSessionId, session);
-      (dependencies.stderr ?? process.stderr).write(
+      writeDiagnostic(
+        dependencies.stderr,
         `fusion-mcp: session=${initializedSessionId} event=init\n`,
       );
     },
@@ -1391,9 +1446,7 @@ async function dispatchHttpRequest(
       response.statusCode = 500;
       response.end("MCP request failed");
     }
-    (dependencies.stderr ?? process.stderr).write(
-      "fusion-mcp: HTTP request failed\n",
-    );
+    writeDiagnostic(dependencies.stderr, "fusion-mcp: HTTP request failed\n");
   } finally {
     if (pendingSessions.delete(session)) {
       await closeSessionResources(session);
@@ -1445,7 +1498,6 @@ export async function startHttpServer(
       runtimeState.shuttingDown = true;
       signalSource.off("SIGINT", handleSignal);
       signalSource.off("SIGTERM", handleSignal);
-
       shutdownPromise = (async () => {
         const stopped = stopHttpServer(httpServer);
         try {
@@ -1468,7 +1520,8 @@ export async function startHttpServer(
         sessions.clear();
         pendingSessions.clear();
         for (const [sessionId] of registeredSessions) {
-          (dependencies.stderr ?? process.stderr).write(
+          writeDiagnostic(
+            dependencies.stderr,
             `fusion-mcp: session=${sessionId} event=close\n`,
           );
         }
@@ -1511,7 +1564,9 @@ export async function main(
 ): Promise<void> {
   const mode = selectMode(args);
   const config = dependencies.config ?? parseConfig();
-  const serverFactory = dependencies.serverFactory ?? defaultServerFactory;
+  const serverFactory =
+    dependencies.serverFactory ??
+    ((serverConfig: Config) => buildRuntimeServer(serverConfig, dependencies));
 
   if (mode === "stdio") {
     const server = serverFactory(config);
@@ -1547,7 +1602,8 @@ export async function runCli(
     await main(args, dependencies);
     return 0;
   } catch (error) {
-    (dependencies.stderr ?? process.stderr).write(
+    writeDiagnostic(
+      dependencies.stderr,
       `fusion-mcp: ${safeCliError(error)}\n`,
     );
     return 1;

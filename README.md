@@ -11,8 +11,9 @@ a hard project allowlist, or restart the system. Fusion's automatic squash
 integration into `develop` is internal board execution, not an MCP merge
 capability; reviewed `develop` → `main` release PRs remain human-only. Writes are
 limited to the explicit task operations and project-settings allowlist below.
-Every tool call is audited to stderr. See [`SPEC.md`](./SPEC.md) for the full
-contract.
+Every production `tools/call` emits exactly one secret-free audit line to
+stderr—including rejected unknown tools and all failure classes—while stdout
+stays protocol-only. See [`SPEC.md`](./SPEC.md) for the full contract.
 
 > Status: **the executable scaffold and all 20 governed tools are implemented,
 > including `update_project_settings`, `update_task`, and `archive_task`.**
@@ -158,7 +159,9 @@ communication, board reprioritisation, task-metadata edits, recoverable
 archiving, and the project-settings allowlist. Audits contain only safe
 metadata selected per tool, such as task or project ids, create-task titles,
 column names, and pagination bounds; full message bodies and tokens are never
-logged. Full parameter and endpoint mapping is in
+logged. Audit and HTTP lifecycle diagnostics share an injectable stderr sink
+(defaulting to `process.stderr`), and stdout remains protocol-only. Full
+parameter and endpoint mapping is in
 [`SPEC.md`](./SPEC.md#tool-catalogue).
 
 ## Branching & releases

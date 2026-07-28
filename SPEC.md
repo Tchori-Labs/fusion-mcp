@@ -243,16 +243,29 @@ always uses a fixed generic message.
 
 ## Audit logging
 
-`auditLog(tool, argsSummary)` writes one line per tool call to **stderr**:
+Every `tools/call` dispatched by a server produced by `buildServer` emits
+**exactly one** audit line to stderr. This includes successful calls, schema and
+in-handler validation failures, missing-token failures, upstream failures, and
+rejected unknown-tool attempts. Unknown names are sanitized to
+`[A-Za-z0-9_.-]` and bounded before logging.
 
 ```
 [2026-07-13T18:03:51.993Z] tool=get_board_health
 [2026-07-13T18:04:10.101Z] tool=create_task title=Fix login column=todo
+[2026-07-13T18:04:11.202Z] tool=merge_pr unknown_tool
 ```
 
 Argument summaries include only non-sensitive identifiers (ids, titles, columns,
-limits) — never token or full free-text bodies. stdout is reserved for the MCP
-stdio protocol, so all diagnostics go to stderr.
+limits) — never tokens or full free-text bodies. The diagnostic sink is
+injectable for embedding and tests and defaults lazily to `process.stderr`.
+HTTP session lifecycle diagnostics use the same sink. stdout remains reserved
+for protocol output on both stdio and HTTP paths and receives no diagnostics.
+
+This guarantee covers every production path, all of which use `buildServer`.
+The in-process injectable `serverFactory` runtime dependency is a test-only seam
+that may supply an arbitrary server and is therefore outside the per-tool audit
+guarantee; diagnostics emitted by the HTTP runtime itself still use the shared
+stderr sink.
 
 ## Deployment sketch
 

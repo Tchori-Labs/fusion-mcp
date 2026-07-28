@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -166,6 +168,41 @@ describe("main", () => {
       expect(httpServerFactory).not.toHaveBeenCalled();
     },
   );
+
+  it("routes stdio tool audits to the injected stderr sink", async () => {
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "index-test", version: "1.0.0" });
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+    const processStderr = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ status: "ok" }));
+
+    await main([], {
+      config: testConfig,
+      fetch: fetchMock,
+      stderr,
+      stdioTransportFactory: () => serverTransport,
+    });
+    await client.connect(clientTransport);
+
+    try {
+      await client.callTool({ name: "get_board_health", arguments: {} });
+
+      expect(stderr.write).toHaveBeenCalledOnce();
+      expect(stderr.write).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[[^\]]+Z\] tool=get_board_health\n$/),
+      );
+      expect(processStderr).not.toHaveBeenCalled();
+      expect(stdout).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
 
   it("reports invalid arguments only to stderr", async () => {
     const stderr = { write: vi.fn().mockReturnValue(true) };

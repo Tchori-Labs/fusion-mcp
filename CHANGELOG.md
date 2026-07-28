@@ -7,10 +7,22 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Hermetic HTTP session-lifecycle coverage for per-invocation auditing,
+  missing-token handling, secret safety, and protocol-only stdout.
+
+### Changed
+
+- Audit lines and HTTP runtime diagnostics now share one injectable stderr sink
+  that defaults lazily to `process.stderr` across both production transports.
+
 ### Fixed
 
 - In-flight HTTP requests are no longer dropped when SIGINT or SIGTERM starts a
   graceful shutdown.
+- Unknown or malformed tool attempts and every governed failure class now emit
+  exactly one sanitized, secret-free audit line without duplicate wrapping.
 - Corrected project-scope placement and trusted-publishing command documentation.
 
 ### Changed
