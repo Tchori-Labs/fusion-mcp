@@ -136,5 +136,7 @@ board integrates your work into `develop`; you do not merge anything, target
   project; archive to make room.
 - `comment` = context/note (may trigger replanning on unstarted tasks);
   `steer` = redirect a running agent.
+- For tasks carrying a validation cause, follow the classify-before-implement
+  protocol in [`docs/validator-rederivation-protocol.md`](./docs/validator-rederivation-protocol.md).
 - Select a workflow (`fn_workflow_select`) only for tasks you created or on
   explicit user request; never reroute the task you are currently executing.
