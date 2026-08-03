@@ -292,7 +292,9 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
 
 ## Testing strategy
 
-- **Runner:** vitest, `environment: node`, `include: src/**/*.test.ts`.
+- **Runner:** vitest in the Node environment, split into disjoint filename lanes.
+  The mandatory config includes `src/**/*.test.ts` but excludes socket and live
+  test suffixes explicitly.
 - **No network, ever.** The Fusion client takes an injectable `fetch`
   (`FetchLike = (url: string, init?: RequestInit) => Promise<Response>`).
   Unit tests pass a `vi.fn()` returning constructed `Response` objects. As an
@@ -301,10 +303,17 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
   dependency and pins the exact call arguments.
 - **Hermetic enforcement:** the mandatory `vitest.config.ts` loads a global
   guard through `setupFiles` that fails outbound TCP, TLS, UDP, HTTP(S), and DNS
-  attempts immediately. Tests named `*.live.test.ts` are excluded from the
-  mandatory suite and belong only in the opt-in live suite under its own
-  explicit config, which must omit the guard; the mandatory gate has no bypass,
+  attempts immediately. Tests named `*.socket.test.ts` and `*.live.test.ts` are
+  excluded from the mandatory suite; the mandatory gate has no bypass,
   allowlist, or environment-controlled escape hatch.
+- **Loopback socket path:** `pnpm test:socket` uses the separate
+  `vitest.socket.config.ts`, includes only `src/**/*.socket.test.ts`, and runs in
+  the required **Build & Test** check. It is credential-free and contacts only
+  an in-test mocked Fusion server. Its lane-local guard permits connections only
+  to literal `127.0.0.1`, preserves Node's non-resolving numeric-IP lookup fast
+  path, and rejects hostnames, every real DNS resolution API, UDP, and all other
+  destinations. This is the narrow filename-scoped socket exception documented
+  in AGENTS.md; it does not weaken the mandatory suite's guard.
 - **Sanctioned live path:** `pnpm test:live` uses the separate,
   guard-free `vitest.live.config.ts` and includes only `src/**/*.live.test.ts`.
   It remains disabled unless `FUSION_MCP_LIVE` is truthy and both
@@ -326,5 +335,5 @@ FM-004 delivers `docs/deploy.md` with the concrete unit file and env template.
 - **FM tasks** add tests alongside each new tool: projectId scoping, pagination
   edges, input-validation failures, and (FM-003) an integration test that spins
   the HTTP server on an ephemeral port against a mocked Fusion.
-- CI gate: `pnpm lint && pnpm typecheck && pnpm test && pnpm build` (job
-  **Build & Test**).
+- CI gate: lint, formatting, dead-code analysis, typecheck, the mandatory and
+  loopback socket suites, build, and package checks (job **Build & Test**).

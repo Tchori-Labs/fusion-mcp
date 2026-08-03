@@ -183,6 +183,7 @@ pnpm install
 pnpm lint         # eslint (flat config)
 pnpm typecheck      # tsc --noEmit
 pnpm test           # vitest (hermetic guard blocks TCP/TLS/HTTP(S)/DNS)
+pnpm test:socket    # credential-free loopback sessions against mock Fusion
 pnpm test:stability # 10 fresh-process hermetic repetitions for flake detection
 pnpm build          # tsc → dist/
 pnpm dev          # tsx src/index.ts --stdio
@@ -195,10 +196,12 @@ do not edit or remove manifest history by hand. See
 [`docs/tool-contract-versioning.md`](./docs/tool-contract-versioning.md) for the
 compatibility and deprecation policy.
 
-CI runs all of the above as the required **Build & Test** check. The mandatory
-suite's guard has no bypass. Tests named `*.live.test.ts` are excluded from
-`pnpm test` and may run only as opt-in live checks through a separate, explicit
-Vitest config that does not load the guard. For repeat-run flake detection, use
+CI runs the mandatory checks plus `pnpm test:socket` as the required
+**Build & Test** check. The mandatory suite's guard has no bypass. Socket tests
+are excluded from `pnpm test`, include only `*.socket.test.ts`, and can connect
+only to literal `127.0.0.1` under a lane-local guard; they use mocked Fusion and
+no credentials. Tests named `*.live.test.ts` are also excluded and may run only
+as opt-in live checks through a separate config. For repeat-run flake detection, use
 `pnpm test:stability` and follow the [stability burn-in runbook](./docs/stability.md).
 
 ### Live integration suite (opt-in)

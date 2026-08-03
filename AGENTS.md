@@ -90,7 +90,14 @@ installed binary).
   happy path, `projectId` scoping (where applicable), pagination edges (list/log
   tools), and input-validation failures.
 - **Tests must never hit the network.** Inject a fake `fetch`
-  (`FetchLike`) or use `undici` `MockAgent`. A test that opens a socket is a bug.
+  (`FetchLike`) or use `undici` `MockAgent`. A test that opens a socket in the
+  mandatory `pnpm test` suite is a bug. There are exactly two filename-scoped
+  exceptions: `src/**/*.socket.test.ts` runs only through `pnpm test:socket`, is
+  credential-free, and may connect only to literal `127.0.0.1` for the server
+  under test and an in-test mocked Fusion stub, as enforced by its lane-local
+  loopback guard; `src/**/*.live.test.ts` runs only through `pnpm test:live`, is
+  credential-gated, and stays outside the required check. Any other
+  socket-opening test remains a bug.
 
 ## Cross-repo / external-action protocol (verbatim rules)
 

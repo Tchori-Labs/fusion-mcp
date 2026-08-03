@@ -53,6 +53,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Socket integration tests (mock Fusion)
+        run: pnpm test:socket
+
       - name: Build
         run: pnpm build
 

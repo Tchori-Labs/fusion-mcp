@@ -11,6 +11,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Hermetic HTTP session-lifecycle coverage for per-invocation auditing,
   missing-token handling, secret safety, and protocol-only stdout.
+- An always-on, credential-free socket integration lane that verifies real
+  Streamable HTTP session lifecycle behavior against mocked Fusion while a
+  lane-local guard restricts connections to literal IPv4 loopback.
 - An advisory validation-cause classifier and `rederivation:check` CLI that
   distinguish engine-synthesized assertion results from substantive findings.
 - A classify-before-implement protocol with drift guards for repeated

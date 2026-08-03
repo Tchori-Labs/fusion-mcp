@@ -1,11 +1,13 @@
 # Live MCP integration suite
 
-The live suite is the sanctioned real-socket check for the built MCP server. It
-drives real MCP clients over stdio and Streamable HTTP while talking to a
-configured, self-hosted Fusion instance. It is separate from the mandatory
-`pnpm test` suite: mandatory tests remain credential-free and load an
-irreversible network guard, while `pnpm test:live` uses only
-`vitest.live.config.ts`, which does not load that guard.
+The live suite is the sanctioned real-instance check for the built MCP server.
+It drives real MCP clients over stdio and Streamable HTTP while talking to a
+configured, self-hosted Fusion instance. It is separate from both the mandatory
+`pnpm test` suite and the always-on `pnpm test:socket` lane: mandatory tests load
+an irreversible all-network guard, while socket tests are credential-free,
+reach only an in-test mock over literal `127.0.0.1`, and enforce that boundary
+with a loopback-only guard. `pnpm test:live` alone uses
+`vitest.live.config.ts` without either guard and may reach a real instance.
 
 The journeys are read-only. They initialize MCP transports, inspect the tool
 catalogue and health, list projects and project-scoped tasks, and read a task
