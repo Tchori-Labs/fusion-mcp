@@ -110,7 +110,7 @@ describe("stability workflow policy", () => {
 
     expect(workflow).not.toContain("FUSION_MCP_STABILITY_ITERATIONS");
     expect(workflow).toMatch(/^\s+if:\s*failure\(\)\s*$/mu);
-    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("actions/upload-artifact@v7");
     const artifactPaths = workflow.match(/^\s+path:\s*.*$/gmu) ?? [];
     expect(artifactPaths).toEqual(["          path: stability-results/*.json"]);
   });
