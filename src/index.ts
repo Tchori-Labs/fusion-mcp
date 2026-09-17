@@ -226,6 +226,8 @@ export interface RuntimeDependencies {
   httpRequestBodyParser?: (request: IncomingMessage) => Promise<unknown>;
   signalSource?: SignalSource;
   setExitCode?: (exitCode: number) => void;
+  /** Test-only override for the bounded HTTP shutdown drain. */
+  httpShutdownDrainTimeoutMs?: number;
   shutdownDrainTimeoutMs?: number;
   stderr?: DiagnosticSink;
 }
@@ -1193,6 +1195,7 @@ function buildRuntimeServer(
 interface HttpSession {
   transport: HttpTransport;
   server: RuntimeMcpServer;
+  closePromise?: Promise<void>;
 }
 
 interface HttpRuntimeState {
@@ -1246,10 +1249,11 @@ function writeJsonRpcError(
 }
 
 function closeSessionResources(session: HttpSession): Promise<void> {
-  return Promise.all([
+  session.closePromise ??= Promise.all([
     session.transport.close().catch(() => undefined),
     session.server.close().catch(() => undefined),
   ]).then(() => undefined);
+  return session.closePromise;
 }
 
 function removeRegisteredSession(
@@ -1278,6 +1282,35 @@ function stopHttpServer(httpServer: HttpServerLike): Promise<void> {
       resolve();
     }
   });
+}
+
+async function waitForCompletion(
+  promise: Promise<unknown>,
+  timeoutMs: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs));
+  });
+  const completed = await Promise.race([promise.then(() => true), timeout]);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+  }
+  return completed;
+}
+
+function closeRemainingHttpConnections(
+  httpServer: HttpServerLike,
+  force: boolean,
+): void {
+  try {
+    httpServer.closeIdleConnections?.();
+    if (force) {
+      httpServer.closeAllConnections?.();
+    }
+  } catch {
+    // Connection cleanup is best-effort after the listener has been closed.
+  }
 }
 
 async function drainHttpDispatches(
@@ -1472,6 +1505,10 @@ export async function startHttpServer(
   const pendingSessions = new Set<HttpSession>();
   const pendingDispatches = new Set<Promise<void>>();
   const runtimeState: HttpRuntimeState = { shuttingDown: false };
+  const drainTimeoutMs =
+    dependencies.httpShutdownDrainTimeoutMs ??
+    dependencies.shutdownDrainTimeoutMs ??
+    DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS;
 
   return await new Promise<HttpServerHandle>((resolve, reject) => {
     const httpServer = factory((request, response) => {
@@ -1509,11 +1546,7 @@ export async function startHttpServer(
           // Best-effort connection cleanup must not prevent shutdown.
         }
 
-        await drainHttpDispatches(
-          pendingDispatches,
-          dependencies.shutdownDrainTimeoutMs ??
-            DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS,
-        );
+        await drainHttpDispatches(pendingDispatches, drainTimeoutMs);
 
         const registeredSessions = [...sessions.entries()];
         const resources = new Set<HttpSession>([
@@ -1535,7 +1568,13 @@ export async function startHttpServer(
         } catch {
           // Best-effort connection cleanup must not prevent shutdown.
         }
-        await stopped;
+        const listenerStopped = await waitForCompletion(
+          stopped,
+          drainTimeoutMs,
+        );
+        if (!listenerStopped) {
+          closeRemainingHttpConnections(httpServer, true);
+        }
       })();
       return shutdownPromise;
     };

@@ -617,6 +617,16 @@ describe("session-aware Streamable HTTP transport", () => {
     expect(runtime.http.closeAllConnections).toHaveBeenCalledOnce();
   });
 
+  it("bounds listener shutdown when its close callback never fires", async () => {
+    const runtime = runtimeHarness({ shutdownDrainTimeoutMs: 5 });
+    const handle = await startHttpServer(testConfig, runtime.dependencies);
+    runtime.http.close.mockImplementation(() => undefined as never);
+
+    await expect(handle.shutdown()).resolves.toBeUndefined();
+
+    expect(runtime.http.closeAllConnections).toHaveBeenCalledTimes(2);
+  });
+
   it("closes a pending uninitialized session after the drain deadline", async () => {
     const pendingConnect = new Promise<void>(() => undefined);
     const pendingServer = {
