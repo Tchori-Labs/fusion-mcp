@@ -184,6 +184,59 @@ function statefulTransportHarness() {
   return { factory, transports };
 }
 
+function governedToolTransportHarness() {
+  const transports: Array<{
+    close: ReturnType<typeof vi.fn>;
+    handleRequest: ReturnType<typeof vi.fn>;
+    sent: unknown[];
+    sessionId?: string;
+  }> = [];
+  const factory: NonNullable<RuntimeDependencies["httpTransportFactory"]> =
+    vi.fn((options: StreamableHTTPServerTransportOptions) => {
+      const sent: unknown[] = [];
+      const close = vi.fn().mockResolvedValue(undefined);
+      const transport = {
+        close,
+        handleRequest: vi.fn(
+          async (incomingRequest, outgoingResponse, parsedBody?: unknown) => {
+            const message =
+              parsedBody ??
+              (incomingRequest as unknown as { mcpRequest?: unknown })
+                .mcpRequest;
+            if (message === undefined) {
+              throw new Error("missing mocked HTTP MCP request");
+            }
+            if (parsedBody !== undefined) {
+              const sessionId = options.sessionIdGenerator?.();
+              if (sessionId === undefined) {
+                throw new Error("stateful transport requires a session id");
+              }
+              state.sessionId = sessionId;
+              await options.onsessioninitialized?.(sessionId);
+            }
+            await transport.onmessage?.(message);
+            outgoingResponse.end();
+          },
+        ),
+        onmessage: undefined as
+          ((message: unknown) => Promise<void> | void) | undefined,
+        send: vi.fn(async (message: unknown) => {
+          sent.push(message);
+        }),
+        start: vi.fn().mockResolvedValue(undefined),
+      };
+      const state: (typeof transports)[number] = {
+        close,
+        handleRequest: transport.handleRequest,
+        sent,
+      };
+      transports.push(state);
+      return transport as never;
+    });
+
+  return { factory, transports };
+}
+
 function runtimeHarness(overrides: RuntimeDependencies = {}) {
   const http = httpFactoryHarness();
   const signals = signalSourceHarness();
@@ -660,6 +713,146 @@ describe("session-aware Streamable HTTP transport", () => {
     expect(JSON.stringify(runtime.stderr.write.mock.calls)).not.toContain(
       "test-secret-marker",
     );
+  });
+
+  it("routes default HTTP tool calls through one stderr-only audit path", async () => {
+    const tokenMarker = "http-audit-token-marker";
+    const requestBodyMarker = "http-audit-request-body-marker";
+    const settingsSecretMarker = "http-audit-settings-secret-marker";
+    const upstreamBodyMarker = "http-audit-upstream-body-marker";
+    const http = httpFactoryHarness();
+    const signals = signalSourceHarness();
+    const transport = governedToolTransportHarness();
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const fetchMock = vi.fn<FetchLike>(async (input) => {
+      const path = new URL(input).pathname;
+      if (path === "/api/health") {
+        return Response.json({ status: "ok" });
+      }
+      if (path === "/api/system/info") {
+        return Response.json({ version: "test" });
+      }
+      if (path === "/api/tasks/task-a/comments") {
+        return Response.json({ saved: true });
+      }
+      if (path === "/api/settings") {
+        return Response.json({ daemonToken: settingsSecretMarker });
+      }
+      if (path === "/api/projects") {
+        return new Response(upstreamBodyMarker, { status: 503 });
+      }
+      throw new Error(`unexpected upstream path: ${path}`);
+    });
+    const config = parseConfig({ PORT: "4242", FUSION_TOKEN: tokenMarker });
+    const handle = await startHttpServer(config, {
+      fetch: fetchMock,
+      httpServerFactory: http.factory,
+      httpRequestBodyParser: vi.fn().mockResolvedValue(initializeRequest),
+      httpTransportFactory: transport.factory,
+      signalSource: signals.source,
+      stderr,
+    });
+
+    let expectedMessages = 1;
+    const callTool = async (
+      name: string,
+      arguments_: unknown,
+    ): Promise<void> => {
+      const callResponse = response();
+      http.getListener()(
+        Object.assign(request("POST", { "mcp-session-id": sessionId }), {
+          mcpRequest: {
+            jsonrpc: "2.0",
+            id: expectedMessages + 1,
+            method: "tools/call",
+            params: { name, arguments: arguments_ },
+          },
+        }) as never,
+        callResponse as never,
+      );
+      await vi.waitFor(() => expect(callResponse.end).toHaveBeenCalledOnce());
+      expectedMessages += 1;
+      await vi.waitFor(() =>
+        expect(transport.transports[0]?.sent).toHaveLength(expectedMessages),
+      );
+    };
+
+    let sessionId = "";
+    try {
+      const initializationResponse = response();
+      http.getListener()(
+        request("POST") as never,
+        initializationResponse as never,
+      );
+      await vi.waitFor(() =>
+        expect(initializationResponse.end).toHaveBeenCalledOnce(),
+      );
+      sessionId = transport.transports[0]?.sessionId ?? "";
+      expect(sessionId).not.toBe("");
+      await vi.waitFor(() =>
+        expect(transport.transports[0]?.sent).toHaveLength(expectedMessages),
+      );
+      expect(transport.transports[0]?.sent[0]).toMatchObject({
+        result: { protocolVersion: "2025-03-26" },
+      });
+
+      await callTool("get_board_health", {});
+      await callTool("get_board_health", {});
+      await callTool("comment_task", {
+        id: "task-a",
+        text: requestBodyMarker,
+      });
+      await callTool("read_project_settings", {});
+      await callTool("get_task", { id: "" });
+      await callTool("list_projects", {});
+
+      await vi.waitFor(() => {
+        expect(
+          stderr.write.mock.calls.filter(([line]) =>
+            typeof line === "string" ? line.includes("tool=") : false,
+          ),
+        ).toHaveLength(6);
+      });
+      const auditLines = stderr.write.mock.calls
+        .map(([line]) => line)
+        .filter((line) => typeof line === "string" && line.includes("tool="));
+      for (const name of [
+        "get_board_health",
+        "get_board_health",
+        "comment_task",
+        "read_project_settings",
+        "get_task",
+        "list_projects",
+      ]) {
+        expect(
+          auditLines.filter((line) => line.includes(`tool=${name}`)),
+        ).toHaveLength(name === "get_board_health" ? 2 : 1);
+      }
+      expect(auditLines).toContainEqual(
+        expect.stringMatching(/tool=get_task validation=failed\n$/),
+      );
+      expect(JSON.stringify(fetchMock.mock.calls)).toContain(requestBodyMarker);
+      expect(fetchMock).toHaveBeenCalledTimes(7);
+      expect(stdout).not.toHaveBeenCalled();
+
+      const output = [
+        stderr.write.mock.calls.flat().join(" "),
+        stdout.mock.calls.flat().join(" "),
+        JSON.stringify(transport.transports[0]?.sent),
+      ].join(" ");
+      for (const marker of [
+        tokenMarker,
+        requestBodyMarker,
+        settingsSecretMarker,
+        upstreamBodyMarker,
+      ]) {
+        expect(output).not.toContain(marker);
+      }
+      expect(transport.transports[0]?.sent).toHaveLength(7);
+    } finally {
+      await handle.shutdown();
+    }
   });
 
   it("keeps catalogue listing and tool-call auditing transport-independent", async () => {

@@ -185,7 +185,7 @@ describeLive("live MCP Streamable HTTP transport", () => {
           server
             .stderr()
             .split("\n")
-            .filter((line) => line.includes("tool=get_board_health")).length >=
+            .filter((line) => line.includes("tool=get_board_health")).length ===
           liveIterations() * 2,
         "HTTP health audit lines",
       );
